@@ -1,0 +1,53 @@
+# Node modules
+node_modules
+npm-debug.log*
+
+# Build output
+dist
+build
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Git
+.git
+.gitignore
+
+# Docker
+Dockerfile
+.dockerignore
+docker-compose*.yml
+
+# IDE
+.vscode
+.idea
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Logs
+logs
+*.log
+
+# Coverage directory used by tools like istanbul
+coverage
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Prisma migrations (keep schema)
+prisma/migrations
+
+# Test files
+**/*.test.ts
+**/*.spec.ts
+__tests__

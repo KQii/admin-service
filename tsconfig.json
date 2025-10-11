@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    // File Layout
+    "rootDir": "./src",
+    "outDir": "./dist",
+    "noEmitOnError": true,
+    "module": "commonjs",
+    "target": "es2016",
+    "esModuleInterop": true,
+    "noImplicitReturns": true,
+    "strict": true,
+    "jsx": "react-jsx",
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules"]
+}

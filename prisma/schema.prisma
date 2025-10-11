@@ -1,0 +1,111 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                      String    @id @default(uuid())
+  username                String    @unique
+  email                   String    @unique
+  password                String
+  full_name               String?
+  is_active               Boolean   @default(true)
+  created_at              DateTime  @default(now()) @db.Timestamp()
+  updated_at              DateTime  @updatedAt @db.Timestamp()
+  last_login              DateTime? @db.Timestamp()
+  refresh_token           String?
+  refresh_token_expires   DateTime? @db.Timestamp()
+  setup_token             String?
+  setup_expires           DateTime?
+  password_changed_at     DateTime? @db.Timestamp()
+  password_reset_token    String?
+  password_reset_expires  DateTime? @db.Timestamp()
+  mfa_enabled             Boolean?
+
+  roles  UserRole[]
+  alerts Alert[]
+
+  @@map("users")
+}
+
+model Role {
+  id          String @id @default(uuid())
+  name        String @unique
+  description String
+
+  permissions RolePermission[]
+  users       UserRole[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id   String @id @default(uuid())
+  name String @unique
+
+  roles RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  role_id       String
+  permission_id String
+
+  role       Role       @relation(fields: [role_id], references: [id])
+  permission Permission @relation(fields: [permission_id], references: [id])
+
+  @@id([role_id, permission_id])
+  @@map("role_permissions")
+}
+
+model UserRole {
+  user_id String @default(uuid())
+  role_id String @default(uuid())
+
+  user User @relation(fields: [user_id], references: [id])
+  role Role @relation(fields: [role_id], references: [id])
+
+  @@id([user_id, role_id])
+  @@map("user_roles")
+}
+
+model AuditLog {
+  id            BigInt   @id
+  user_id       String
+  action        String
+  resource_type String
+  resource_id   String
+  details       Json
+  created_at    DateTime @db.Timestamp()
+
+  @@map("audit_logs")
+}
+
+model Alert {
+  id                    String   @id @default(uuid())
+  alertmanager_alert_id String
+  status                String
+  severity              String
+  summary               String
+  labels                Json
+  annotations           Json
+  starts_at             DateTime @db.Timestamp()
+  ends_at               DateTime @db.Timestamp()
+  acknowledged_by       String
+  actions               Json
+
+  user User @relation(fields: [acknowledged_by], references: [id])
+
+  @@map("alerts")
+}

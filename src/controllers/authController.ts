@@ -255,7 +255,6 @@ const protect = catchAsync(
       );
 
     req.user = freshUser;
-    console.log("User:\n", req.user);
     next();
   }
 );

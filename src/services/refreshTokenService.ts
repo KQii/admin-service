@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { userModel } from "../models/userModel";
+import { parseTimeToSeconds } from "../utils/timeParser";
 
 export const refreshTokenService = {
   generateRefreshToken: (): string => {
@@ -8,7 +9,10 @@ export const refreshTokenService = {
 
   createRefreshToken: async (userId: string): Promise<string> => {
     const refreshToken = refreshTokenService.generateRefreshToken();
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+
+    const expiresIn = process.env.REFRESH_TOKEN_EXPIRES_IN || "7d";
+    const expiresInMiliseconds = parseTimeToSeconds(expiresIn) * 1000;
+    const expiresAt = new Date(Date.now() + expiresInMiliseconds);
 
     await userModel.updateRefreshToken(userId, refreshToken, expiresAt);
     return refreshToken;

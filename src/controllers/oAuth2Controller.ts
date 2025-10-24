@@ -4,14 +4,17 @@ import { jwtService } from "../services/jwtService";
 import { authCodeService } from "../services/authCodeService";
 import { userService } from "../services/userService";
 import { refreshTokenService } from "../services/refreshTokenService";
+import { tokenService } from "../services/tokenService";
 import AppError from "../middlewares/appError";
 import {
   SanitizedUser,
   LoginCredentials,
   UserWithRoles,
+  SanitizedUserWithRoles,
 } from "../types/user.types";
 import { catchAsync } from "../utils/catchAsync";
 import { generateToken } from "../utils/token";
+import { parseTimeToSeconds } from "../utils/timeParser";
 
 // Store authorization codes temporarily (in production, use Redis)
 interface AuthCode {
@@ -26,38 +29,36 @@ const signToken = (id: string, audience?: string): string => {
   return jwtService.signToken(id, audience);
 };
 
-// const createSendTokenWithOAuth2 = async (
-//   user: SanitizedUser,
-//   statusCode: number,
-//   res: Response
-// ): Promise<void> => {
-//   try {
-//     const accessToken = signToken(user.id);
-//     const refreshToken = await refreshTokenService.createRefreshToken(user.id);
-//     const response = {
-//       access_token: accessToken,
-//       token_type: "Bearer",
-//       expires_in: 900, // 15 minutes
-//       refresh_token: refreshToken,
-//     };
-
-//     res.status(statusCode).json(response);
-//   } catch (error) {
-//     console.error("❌ Error in createSendTokenWithOAuth2:", error);
-//     throw error;
-//   }
-// };
-
 const createSendTokenWithOAuth2 = async (
-  user: SanitizedUser,
+  user: SanitizedUserWithRoles,
   statusCode: number,
   res: Response,
   clientId?: string,
-  nonce?: string
+  nonce?: string,
+  existingRefreshToken?: string
 ): Promise<void> => {
   try {
     const accessToken = signToken(user.id);
-    const refreshToken = await refreshTokenService.createRefreshToken(user.id);
+    // const refreshToken = await refreshTokenService.createRefreshToken(user.id);
+
+    let refreshToken: string;
+
+    if (existingRefreshToken) {
+      console.log("🔄 Rotating existing refresh token...");
+      const rotationResult = await refreshTokenService.rotateRefreshToken(
+        existingRefreshToken
+      );
+
+      if (!rotationResult) {
+        throw new Error("Failed to rotate refresh token");
+      }
+
+      refreshToken = rotationResult.newRefreshToken;
+      console.log("✅ Token rotated successfully");
+    } else {
+      console.log("✅ Creating new refresh token...");
+      refreshToken = await refreshTokenService.createRefreshToken(user.id);
+    }
 
     // Generate ID token for OIDC compliance
     const idToken = await oidcService.generateIDToken(
@@ -66,10 +67,14 @@ const createSendTokenWithOAuth2 = async (
       nonce
     );
 
+    // Parse ACCESS_TOKEN_EXPIRES_IN to seconds
+    const expiresIn = process.env.ACCESS_TOKEN_EXPIRES_IN || "15m";
+    const expiresInSeconds = parseTimeToSeconds(expiresIn);
+
     const response = {
       access_token: accessToken,
       token_type: "Bearer",
-      expires_in: 900, // 15 minutes
+      expires_in: expiresInSeconds, // Access token expiration in seconds
       refresh_token: refreshToken,
       id_token: idToken, // OIDC ID token
       scope: "openid profile email",
@@ -395,7 +400,7 @@ const getJWTFromCode = catchAsync(
     }
 
     try {
-      await createSendTokenWithOAuth2(user, 200, res);
+      await createSendTokenWithOAuth2(user, 200, res, client_id);
       console.log("✅ Token response sent successfully");
     } catch (error) {
       console.error("❌ Error creating tokens:", error);
@@ -410,10 +415,7 @@ const getJWTFromCode = catchAsync(
 // OAuth2 refresh token endpoint
 const refreshToken = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
-    console.log("=== REFRESH TOKEN REQUEST ===");
-    console.log("Body:", req.body);
-
-    const { refresh_token, grant_type } = req.body;
+    const { refresh_token, grant_type, client_id } = req.body;
 
     if (grant_type !== "refresh_token") {
       res.status(400).json({
@@ -456,11 +458,15 @@ const refreshToken = catchAsync(
         return;
       }
 
-      // Rotating refresh token
-      await refreshTokenService.rotateRefreshToken(refresh_token);
-
       // Creating new tokens
-      await createSendTokenWithOAuth2(user, 200, res);
+      await createSendTokenWithOAuth2(
+        user,
+        200,
+        res,
+        client_id,
+        undefined,
+        refresh_token
+      );
       return;
     } catch (error) {
       // Refresh token error
@@ -472,27 +478,6 @@ const refreshToken = catchAsync(
     }
   }
 );
-
-// OAuth2 userinfo endpoint
-// const getUserInfo = catchAsync(
-//   async (req: Request, res: Response, next: NextFunction) => {
-//     const user = (req as any).user as UserWithRoles;
-
-//     if (!user) {
-//       return next(new AppError("User not found", 404));
-//     }
-
-//     const userInfo = {
-//       sub: user.id,
-//       preferred_username: user.username,
-//       email: user.email,
-//       name: user.full_name || user.username,
-//       roles: user.roles.map((r) => r.role.name),
-//     };
-
-//     res.json(userInfo);
-//   }
-// );
 
 const getUserInfo = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
@@ -542,10 +527,124 @@ const getUserInfo = catchAsync(
   }
 );
 
+// OAuth2 token revocation endpoint (RFC 7009)
+const revokeToken = catchAsync(
+  async (req: Request, res: Response, next: NextFunction) => {
+    console.log("=== TOKEN REVOCATION REQUEST ===");
+    console.log("Body:", req.body);
+
+    const { token, token_type_hint } = req.body;
+
+    // Token is required
+    if (!token) {
+      res.status(400).json({
+        error: "invalid_request",
+        error_description: "token parameter is required",
+      });
+      return;
+    }
+
+    // Optional: Extract client credentials for authorization
+    let client_id: string | undefined;
+    const authHeader = req.headers.authorization;
+
+    if (authHeader && authHeader.startsWith("Basic ")) {
+      try {
+        const credentials = Buffer.from(
+          authHeader.split(" ")[1],
+          "base64"
+        ).toString();
+        const [headerClientId] = credentials.split(":");
+        client_id = headerClientId;
+        console.log("📋 Client authenticated:", client_id);
+      } catch (error) {
+        console.log("⚠️ Failed to decode Basic Auth header:", error);
+      }
+    } else if (req.body.client_id) {
+      client_id = req.body.client_id;
+    }
+
+    try {
+      // token_type_hint helps optimize the lookup (optional parameter)
+      const hint = token_type_hint || "refresh_token";
+
+      console.log(`🔍 Attempting to revoke ${hint}:`, token.substring(0, 20));
+
+      if (hint === "refresh_token" || !token_type_hint) {
+        // Try to revoke as refresh token
+        const user = await refreshTokenService.validateRefreshToken(token);
+
+        if (user) {
+          console.log("✅ Found refresh token for user:", user.id);
+          await refreshTokenService.revokeRefreshToken(user.id);
+          console.log("✅ Refresh token revoked successfully");
+
+          // RFC 7009: Return 200 OK even if token was already invalid
+          res.status(200).json({
+            success: true,
+            message: "Token revoked successfully",
+          });
+          return;
+        } else {
+          console.log("⚠️ Token not found as refresh token");
+        }
+      }
+
+      if (hint === "access_token" || !token_type_hint) {
+        // Try to revoke as access token
+        try {
+          const decoded = jwtService.verifyToken(token) as any;
+
+          if (decoded && decoded.id) {
+            console.log("✅ Found valid access token for user:", decoded.id);
+
+            // Calculate TTL for blacklist (time until token expires)
+            const now = Math.floor(Date.now() / 1000);
+            const ttl = decoded.exp ? decoded.exp - now : 900; // Default 15min if no exp
+
+            // Add JWT to blacklist
+            await tokenService.blacklistToken(token, ttl);
+            console.log("✅ Access token blacklisted");
+
+            // Also revoke user's refresh token to force re-login
+            await refreshTokenService.revokeRefreshToken(decoded.id);
+            console.log("✅ User's refresh token revoked");
+
+            res.status(200).json({
+              success: true,
+              message: "Token revoked successfully",
+            });
+            return;
+          }
+        } catch (error) {
+          console.log("⚠️ Token not found as valid access token");
+        }
+      }
+
+      // RFC 7009: Even if token is invalid/not found, return 200 OK
+      // This prevents attackers from using this endpoint to check token validity
+      console.log("⚠️ Token not found, but returning success per RFC 7009");
+      res.status(200).json({
+        success: true,
+        message: "Token revoked successfully",
+      });
+    } catch (error) {
+      console.error("❌ Error in token revocation:", error);
+
+      // RFC 7009: Return 200 OK even on errors (prevents information leakage)
+      res.status(200).json({
+        success: true,
+        message: "Token revoked successfully",
+      });
+    }
+  }
+);
+
 export const oAuth2Controller = {
   authorize,
   login,
   getJWTFromCode,
   refreshToken,
   getUserInfo,
+  revokeToken,
 };

@@ -41,20 +41,18 @@ export const jwtService = {
       algorithm: "RS256",
       expiresIn,
       keyid: keyId,
-      // issuer:
-      //   process.env.ISSUER_URL ||
-      //   `http://localhost:${process.env.PORT || 3001}`,
-      issuer: "http://host.docker.internal:3001",
+      issuer:
+        process.env.ISSUER_URL ||
+        `http://localhost:${process.env.PORT || 3001}`,
     } as SignOptions);
   },
 
   verifyToken: (token: string): JwtPayload => {
     return jwt.verify(token, publicKey, {
       algorithms: ["RS256"],
-      // issuer:
-      //   process.env.ISSUER_URL ||
-      //   `http://localhost:${process.env.PORT || 3001}`,
-      issuer: "http://host.docker.internal:3001",
+      issuer:
+        process.env.ISSUER_URL ||
+        `http://localhost:${process.env.PORT || 3001}`,
     }) as JwtPayload;
   },
 
@@ -76,10 +74,9 @@ export const jwtService = {
 
     const idTokenPayload = {
       ...payload,
-      // iss:
-      //   process.env.ISSUER_URL ||
-      //   `http://localhost:${process.env.PORT || 3001}`,
-      iss: "http://host.docker.internal:3001",
+      iss:
+        process.env.ISSUER_URL ||
+        `http://localhost:${process.env.PORT || 3001}`,
       iat: now,
       exp: now + 3600, // 1 hour
       aud: audience,

@@ -1,13 +1,13 @@
-import crypto from "crypto";
-import jwt from "jsonwebtoken";
 import { Request } from "express";
 import { jwtService } from "./jwtService";
+import { SanitizedUserWithRoles } from "../types/user.types";
 
 export const oidcService = {
   // Generate OpenID Configuration
   getOpenIDConfiguration: (req: Request) => {
     // const baseUrl = `${req.protocol}://${req.get("host")}`;
-    const baseUrl = "http://host.docker.internal:3001";
+    const baseUrl =
+      process.env.ISSUER_URL || `http://localhost:${process.env.PORT || 3001}`;
 
     return {
       issuer: baseUrl,
@@ -82,7 +82,11 @@ export const oidcService = {
   },
 
   // Generate ID Token for OIDC using RS256
-  generateIDToken: async (user: any, clientId: string, nonce?: string) => {
+  generateIDToken: async (
+    user: SanitizedUserWithRoles,
+    clientId: string,
+    nonce?: string
+  ) => {
     const now = Math.floor(Date.now() / 1000);
 
     const payload = {

@@ -515,7 +515,6 @@ const getUserInfo = catchAsync(
         roles: user.roles?.map((r) => r.name) || [],
         groups: user.roles?.map((r) => r.name) || [],
       };
-      console.log(userInfo);
 
       res.status(200).json(userInfo);
     } catch (error) {

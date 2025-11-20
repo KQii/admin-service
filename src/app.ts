@@ -1,12 +1,12 @@
 import express, { NextFunction, Request, Response } from "express";
 import morgan from "morgan";
 import cors from "cors";
+import cookieParser from "cookie-parser";
 import wellKnownRouter from "./routes/wellKnownRoutes";
 import authRouter from "./routes/authRoutes";
 import oAuth2Router from "./routes/oAuth2Routes";
 import userRouter from "./routes/userRoutes";
 import roleRouter from "./routes/roleRoutes";
-import permissionRouter from "./routes/permissionRoutes";
 import AppError from "./middlewares/appError";
 import globalErrorHandler from "./middlewares/errorController";
 
@@ -17,11 +17,12 @@ if (process.env.NODE_ENV === "development") {
 }
 
 app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
 app.use(express.json());
 
 app.use(
   cors({
-    origin: ["http://localhost:5173", "http://localhost:5174"],
+    origin: process.env.FRONTEND_URL,
     credentials: true,
   })
 );
@@ -32,7 +33,6 @@ app.use("/api/v1/auth", authRouter);
 app.use("/api/v1/oauth2", oAuth2Router);
 app.use("/api/v1/users", userRouter);
 app.use("/api/v1/roles", roleRouter);
-app.use("/api/v1/permissions", permissionRouter);
 
 app.get("/", (_, res: Response) => {
   res.json({ status: "ok", service: "Admin Service" });

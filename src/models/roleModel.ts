@@ -9,27 +9,22 @@ export const roleModel = {
       skip: skip,
       take: limit,
       include: {
-        permissions: {
-          include: {
-            permission: true,
-          },
-        },
-        users: {
-          include: {
-            user: {
-              select: {
-                id: true,
-                username: true,
-                email: true,
-              },
-            },
-          },
-        },
+        users: true,
       },
       orderBy: {
         name: "asc",
       },
     }),
+
+  findManyWithQuery: (queryOptions: any) => {
+    const { select, ...rest } = queryOptions;
+
+    // If select is provided, use it; otherwise include users by default
+    return prisma.role.findMany({
+      ...rest,
+      ...(select ? { select } : { include: { users: true } }),
+    });
+  },
 
   count: (filters?: Record<string, any>) =>
     prisma.role.count({
@@ -40,22 +35,7 @@ export const roleModel = {
     prisma.role.findUnique({
       where: { id },
       include: {
-        permissions: {
-          include: {
-            permission: true,
-          },
-        },
-        users: {
-          include: {
-            user: {
-              select: {
-                id: true,
-                username: true,
-                email: true,
-              },
-            },
-          },
-        },
+        users: true,
       },
     }),
 
@@ -63,11 +43,7 @@ export const roleModel = {
     prisma.role.findUnique({
       where: { name },
       include: {
-        permissions: {
-          include: {
-            permission: true,
-          },
-        },
+        users: true,
       },
     }),
 
@@ -78,22 +54,7 @@ export const roleModel = {
         description,
       },
       include: {
-        permissions: {
-          include: {
-            permission: true,
-          },
-        },
-        users: {
-          include: {
-            user: {
-              select: {
-                id: true,
-                username: true,
-                email: true,
-              },
-            },
-          },
-        },
+        users: true,
       },
     }),
 
@@ -105,79 +66,12 @@ export const roleModel = {
         ...(description && { description }),
       },
       include: {
-        permissions: {
-          include: {
-            permission: true,
-          },
-        },
-        users: {
-          include: {
-            user: {
-              select: {
-                id: true,
-                username: true,
-                email: true,
-              },
-            },
-          },
-        },
+        users: true,
       },
     }),
 
   deleteRole: (id: string) =>
     prisma.role.delete({
       where: { id },
-    }),
-
-  assignPermissionToRole: (roleId: string, permissionId: string) =>
-    prisma.rolePermission.create({
-      data: {
-        role_id: roleId,
-        permission_id: permissionId,
-      },
-    }),
-
-  removePermissionFromRole: (roleId: string, permissionId: string) =>
-    prisma.rolePermission.delete({
-      where: {
-        role_id_permission_id: {
-          role_id: roleId,
-          permission_id: permissionId,
-        },
-      },
-    }),
-
-  assignRoleToUser: (userId: string, roleId: string) =>
-    prisma.userRole.create({
-      data: {
-        user_id: userId,
-        role_id: roleId,
-      },
-    }),
-
-  removeRoleFromUser: (userId: string, roleId: string) =>
-    prisma.userRole.delete({
-      where: {
-        user_id_role_id: {
-          user_id: userId,
-          role_id: roleId,
-        },
-      },
-    }),
-
-  getRolesByUserId: (userId: string) =>
-    prisma.userRole.findMany({
-      where: { user_id: userId },
-      include: {
-        role: {
-          include: {
-            permissions: {
-              include: {
-                permission: true,
-              },
-            },
-          },
-        },
-      },
     }),
 };

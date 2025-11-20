@@ -9,22 +9,33 @@ export const userModel = {
       skip: skip,
       take: limit,
       include: {
-        roles: {
-          include: {
-            role: {
-              select: {
-                id: true,
-                name: true,
-                description: true,
-              },
-            },
-          },
-        },
+        role: true,
       },
       orderBy: {
         created_at: "desc",
       },
     }),
+
+  findAllUsers: () =>
+    prisma.user.findMany({
+      include: {
+        role: true,
+      },
+      orderBy: {
+        created_at: "desc",
+      },
+    }),
+
+  findManyWithQuery: (queryOptions: any) => {
+    const { select, ...rest } = queryOptions;
+
+    // If select is provided, merge with role inclusion
+    // Otherwise just include role by default
+    return prisma.user.findMany({
+      ...rest,
+      ...(select ? { select } : { include: { role: true } }),
+    });
+  },
 
   count: (filters?: Record<string, any>) =>
     prisma.user.count({
@@ -35,17 +46,7 @@ export const userModel = {
     prisma.user.findUnique({
       where: { id },
       include: {
-        roles: {
-          include: {
-            role: {
-              select: {
-                id: true,
-                name: true,
-                description: true,
-              },
-            },
-          },
-        },
+        role: true,
       },
     }),
 
@@ -54,12 +55,18 @@ export const userModel = {
       where: {
         email,
       },
+      include: {
+        role: true,
+      },
     }),
 
   findByUsername: (username: string) =>
     prisma.user.findUnique({
       where: {
         username,
+      },
+      include: {
+        role: true,
       },
     }),
 
@@ -71,6 +78,9 @@ export const userModel = {
           gt: new Date(Date.now()),
         },
       },
+      include: {
+        role: true,
+      },
     }),
 
   findBySetupToken: (token: string) =>
@@ -81,14 +91,26 @@ export const userModel = {
           gt: new Date(Date.now()),
         },
       },
+      include: {
+        role: true,
+      },
     }),
 
-  createUser: (username: string, email: string, password: string) =>
+  createUser: (
+    username: string,
+    email: string,
+    password: string,
+    roleId: string
+  ) =>
     prisma.user.create({
       data: {
         username,
         email,
         password,
+        roleId,
+      },
+      include: {
+        role: true,
       },
     }),
 
@@ -97,6 +119,9 @@ export const userModel = {
       where: { id },
       data: {
         last_login: new Date(),
+      },
+      include: {
+        role: true,
       },
     }),
 
@@ -108,6 +133,9 @@ export const userModel = {
       data: {
         password,
         password_changed_at: new Date(Date.now() - 1000),
+      },
+      include: {
+        role: true,
       },
     }),
 
@@ -124,6 +152,9 @@ export const userModel = {
         password_reset_token: resetToken,
         password_reset_expires: expiresAt,
       },
+      include: {
+        role: true,
+      },
     }),
 
   updatePasswordInfo: (id: string, password: string) =>
@@ -137,6 +168,9 @@ export const userModel = {
         password_reset_token: null,
         password_reset_expires: null,
       },
+      include: {
+        role: true,
+      },
     }),
 
   updateSetupToken: (id: string, token: string, expiresAt: Date) =>
@@ -148,6 +182,9 @@ export const userModel = {
         setup_token: token,
         setup_expires: expiresAt,
       },
+      include: {
+        role: true,
+      },
     }),
 
   completeSetup: (id: string, password: string) =>
@@ -157,9 +194,13 @@ export const userModel = {
       },
       data: {
         password,
+        is_verified: true,
         setup_token: null,
         setup_expires: null,
         password_changed_at: new Date(Date.now() - 1000),
+      },
+      include: {
+        role: true,
       },
     }),
 
@@ -174,6 +215,20 @@ export const userModel = {
         refresh_token: token,
         refresh_token_expires: expiresAt,
       },
+      include: {
+        role: true,
+      },
+    }),
+
+  updateIsActive: (id: string, isActive: boolean) =>
+    prisma.user.update({
+      where: { id },
+      data: {
+        is_active: isActive,
+      },
+      include: {
+        role: true,
+      },
     }),
 
   findByRefreshToken: (refreshToken: string) =>
@@ -183,6 +238,25 @@ export const userModel = {
         refresh_token_expires: {
           gt: new Date(),
         },
+      },
+      include: {
+        role: true,
+      },
+    }),
+
+  deleteUser: (id: string) =>
+    prisma.user.delete({
+      where: { id },
+    }),
+
+  updateRoleId: (id: string, roleId: string) =>
+    prisma.user.update({
+      where: { id },
+      data: {
+        roleId: roleId,
+      },
+      include: {
+        role: true,
       },
     }),
 };

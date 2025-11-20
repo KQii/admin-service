@@ -41,23 +41,21 @@ export type LoginCredentials = {
 /**
  * User with role information included
  */
-export interface UserWithRoles extends User {
-  roles: {
-    role: {
-      id: string;
-      name: string;
-      description: string;
-    };
-  }[];
+export interface UserWithRole extends User {
+  role: {
+    id: string;
+    name: string;
+    description: string;
+  };
 }
 
 /**
  * Sanitized user with roles included
  */
-export interface SanitizedUserWithRoles extends SanitizedUser {
-  roles: {
+export interface SanitizedUserWithRole extends SanitizedUser {
+  role: {
     id: string;
     name: string;
     description: string;
-  }[];
+  };
 }

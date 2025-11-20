@@ -5,7 +5,7 @@ import { authController } from "../controllers/authController";
 const router = express.Router();
 
 // Protect all routes after this middleware
-router.use(authController.protect);
+// router.use(authController.protect);
 
 // Role CRUD routes
 router
@@ -18,20 +18,5 @@ router
   .get(roleController.getRole)
   .patch(roleController.updateRole)
   .delete(roleController.deleteRole);
-
-// Permission management routes
-router.route("/:id/permissions").post(roleController.assignPermissionToRole);
-
-router
-  .route("/:id/permissions/:permissionId")
-  .delete(roleController.removePermissionFromRole);
-
-// User role management routes
-router.route("/:id/users").post(roleController.assignRoleToUser);
-
-router.route("/:id/users/:userId").delete(roleController.removeRoleFromUser);
-
-// Get user roles
-router.route("/users/:userId").get(roleController.getUserRoles);
 
 export default router;

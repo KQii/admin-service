@@ -7,26 +7,12 @@ import { CreateRoleDto, UpdateRoleDto } from "../types/role.types";
 export const roleController = {
   getAllRoles: catchAsync(
     async (req: Request, res: Response, next: NextFunction) => {
-      const page = parseInt(req.query.page as string) || 1;
-      const limit = parseInt(req.query.limit as string) || 10;
-      const filters = req.query.filters
-        ? JSON.parse(req.query.filters as string)
-        : undefined;
-
-      const result = await roleService.getAllRoles(filters, page, limit);
+      const result = await roleService.getAllRoles(req.query);
 
       res.status(200).json({
-        status: "success",
-        results: result.data.length,
-        pagination: {
-          page: result.page,
-          limit: result.limit,
-          totalPages: result.totalPages,
-          total: result.total,
-        },
-        data: {
-          roles: result.data,
-        },
+        success: true,
+        data: result.roles,
+        pagination: result.metadata,
       });
     }
   ),
@@ -138,130 +124,6 @@ export const roleController = {
       res.status(204).json({
         status: "success",
         data: null,
-      });
-    }
-  ),
-
-  assignPermissionToRole: catchAsync(
-    async (req: Request, res: Response, next: NextFunction) => {
-      const { permissionId } = req.body;
-
-      if (!permissionId) {
-        return next(new AppError("Please provide permission ID", 400));
-      }
-
-      const role = await roleService.getRoleById(req.params.id);
-      if (!role) {
-        return next(new AppError("No role found with that ID", 404));
-      }
-
-      // Check if permission is already assigned
-      const hasPermission = role.permissions.some((p) => p.id === permissionId);
-      if (hasPermission) {
-        return next(
-          new AppError("Permission is already assigned to this role", 409)
-        );
-      }
-
-      await roleService.assignPermissionToRole(req.params.id, permissionId);
-
-      res.status(200).json({
-        status: "success",
-        message: "Permission assigned to role successfully",
-      });
-    }
-  ),
-
-  removePermissionFromRole: catchAsync(
-    async (req: Request, res: Response, next: NextFunction) => {
-      const { permissionId } = req.params;
-
-      const role = await roleService.getRoleById(req.params.id);
-      if (!role) {
-        return next(new AppError("No role found with that ID", 404));
-      }
-
-      // Check if permission is assigned
-      const hasPermission = role.permissions.some((p) => p.id === permissionId);
-      if (!hasPermission) {
-        return next(
-          new AppError("Permission is not assigned to this role", 404)
-        );
-      }
-
-      await roleService.removePermissionFromRole(req.params.id, permissionId);
-
-      res.status(200).json({
-        status: "success",
-        message: "Permission removed from role successfully",
-      });
-    }
-  ),
-
-  assignRoleToUser: catchAsync(
-    async (req: Request, res: Response, next: NextFunction) => {
-      const { userId } = req.body;
-
-      if (!userId) {
-        return next(new AppError("Please provide user ID", 400));
-      }
-
-      const role = await roleService.getRoleById(req.params.id);
-      if (!role) {
-        return next(new AppError("No role found with that ID", 404));
-      }
-
-      // Check if user already has this role
-      const hasRole = role.users.some((u) => u.id === userId);
-      if (hasRole) {
-        return next(new AppError("User already has this role", 409));
-      }
-
-      await roleService.assignRoleToUser(userId, req.params.id);
-
-      res.status(200).json({
-        status: "success",
-        message: "Role assigned to user successfully",
-      });
-    }
-  ),
-
-  removeRoleFromUser: catchAsync(
-    async (req: Request, res: Response, next: NextFunction) => {
-      const { userId } = req.params;
-
-      const role = await roleService.getRoleById(req.params.id);
-      if (!role) {
-        return next(new AppError("No role found with that ID", 404));
-      }
-
-      // Check if user has this role
-      const hasRole = role.users.some((u) => u.id === userId);
-      if (!hasRole) {
-        return next(new AppError("User does not have this role", 404));
-      }
-
-      await roleService.removeRoleFromUser(userId, req.params.id);
-
-      res.status(200).json({
-        status: "success",
-        message: "Role removed from user successfully",
-      });
-    }
-  ),
-
-  getUserRoles: catchAsync(
-    async (req: Request, res: Response, next: NextFunction) => {
-      const { userId } = req.params;
-
-      const roles = await roleService.getUserRoles(userId);
-
-      res.status(200).json({
-        status: "success",
-        results: roles.length,
-        data: {
-          roles,
-        },
       });
     }
   ),

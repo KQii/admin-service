@@ -1,4 +1,4 @@
-import { Role, Permission, User } from "@prisma/client";
+import { Role, User } from "@prisma/client";
 
 export interface CreateRoleDto {
   name: string;
@@ -19,9 +19,6 @@ export interface AssignRoleToUserDto {
 }
 
 export interface RoleWithRelations extends Role {
-  permissions: {
-    permission: Permission;
-  }[];
   users?: {
     user: {
       id: string;
@@ -35,7 +32,6 @@ export interface SanitizedRole {
   id: string;
   name: string;
   description: string;
-  permissions: Permission[];
   users: {
     id: string;
     username: string;

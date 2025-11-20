@@ -7,13 +7,12 @@ import { refreshTokenService } from "../services/refreshTokenService";
 import { tokenService } from "../services/tokenService";
 import AppError from "../middlewares/appError";
 import {
-  SanitizedUser,
   LoginCredentials,
-  UserWithRoles,
-  SanitizedUserWithRoles,
+  UserWithRole,
+  SanitizedUserWithRole,
 } from "../types/user.types";
 import { catchAsync } from "../utils/catchAsync";
-import { generateToken } from "../utils/token";
+import { generateRandomString as generateToken } from "../utils/generateRandomString";
 import { parseTimeToSeconds } from "../utils/timeParser";
 
 // Store authorization codes temporarily (in production, use Redis)
@@ -30,7 +29,7 @@ const signToken = (id: string, audience?: string): string => {
 };
 
 const createSendTokenWithOAuth2 = async (
-  user: SanitizedUserWithRoles,
+  user: SanitizedUserWithRole,
   statusCode: number,
   res: Response,
   clientId?: string,
@@ -268,7 +267,7 @@ const login = catchAsync(
     }
 
     // Generate authorization code
-    const authCode = generateToken();
+    const authCode = generateToken(32, "hex");
     const authCodeExpiresIn = process.env.AUTH_CODE_EXPIRES_IN
       ? parseInt(process.env.AUTH_CODE_EXPIRES_IN) * 1000 // Convert seconds to milliseconds
       : 10 * 60 * 1000; // Default: 10 minutes in milliseconds
@@ -508,12 +507,13 @@ const getUserInfo = catchAsync(
       // OIDC-compliant user info response
       const userInfo = {
         sub: user.id,
-        name: user.full_name,
+        name: user.username,
         email: user.email,
         preferred_username: user.username,
         email_verified: true,
-        roles: user.roles?.map((r) => r.name) || [],
-        groups: user.roles?.map((r) => r.name) || [],
+        role: user.role,
+        created_at: user.created_at,
+        updated_at: user.updated_at,
       };
 
       res.status(200).json(userInfo);

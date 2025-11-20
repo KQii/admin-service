@@ -1,43 +1,48 @@
-﻿import jwt from "jsonwebtoken";
+﻿import { Request, Response, NextFunction } from "express";
+import jwt from "jsonwebtoken";
 import type { SignOptions, JwtPayload } from "jsonwebtoken";
 import { promisify } from "util";
-import { Request, Response, NextFunction } from "express";
 import { User } from "@prisma/client";
-import { catchAsync } from "../utils/catchAsync";
-import { userService } from "../services/userService";
 import AppError from "../middlewares/appError";
-import { sendEmail } from "../utils/email";
+import { jwtService } from "../services/jwtService";
+import { userService } from "../services/userService";
 import { tokenService } from "../services/tokenService";
 import { refreshTokenService } from "../services/refreshTokenService";
-import { generateTempPassword } from "../utils/generatePassword";
+import { catchAsync } from "../utils/catchAsync";
+import { sendEmail } from "../utils/email";
+import { sanitizeUser } from "../utils/dataTransformers";
+import { generateRandomString as generateTempPassword } from "../utils/generateRandomString";
 import {
-  SanitizedUser,
   CreateUserDto,
   UpdateUserDto,
   LoginCredentials,
-  UserWithRoles,
+  UserWithRole,
+  SanitizedUserWithRole,
 } from "../types/user.types";
-import { generateToken } from "../utils/token";
 
 // Extend Express Request type
 declare module "express-serve-static-core" {
   interface Request {
-    user: UserWithRoles;
+    user: UserWithRole;
   }
 }
 
 // Environment variables validation
 const jwtSecret = process.env.JWT_SECRET!;
 
-const signToken = (id: string): string => {
-  const payload: { id: string } = { id };
-  // Cast the expiration time to a valid SignOptions value
-  const expiresIn = process.env.ACCESS_TOKEN_EXPIRES_IN || "15m";
-  return jwt.sign(payload, jwtSecret, { expiresIn } as SignOptions);
+// const signToken = (id: string): string => {
+//   const payload: { id: string } = { id };
+//   // Cast the expiration time to a valid SignOptions value
+//   const expiresIn = process.env.ACCESS_TOKEN_EXPIRES_IN || "15m";
+//   return jwt.sign(payload, jwtSecret, { expiresIn } as SignOptions);
+// };
+
+const signToken = (id: string, audience?: string): string => {
+  return jwtService.signToken(id, audience);
 };
 
 const createSendToken = async (
-  user: SanitizedUser,
+  user: SanitizedUserWithRole,
   statusCode: number,
   res: Response
 ): Promise<void> => {
@@ -76,13 +81,17 @@ const createSendToken = async (
   });
 };
 
-const createTokenAndSendEmail = async (user: SanitizedUser, req: Request) => {
+const createTokenAndSendEmail = async (
+  user: SanitizedUserWithRole,
+  req: Request
+) => {
   const setupToken = await userService.createSetupToken(user.id);
 
   // 5. Create the account setup URL
-  const setupURL = `${req.protocol}://${req.get(
-    "host"
-  )}/api/v1/users/setupAccount/${setupToken}`;
+  // const setupURL = `${req.protocol}://${req.get(
+  //   "host"
+  // )}/api/v1/auth/setupAccount/${setupToken}`;
+  const setupURL = `${process.env.FRONTEND_URL}/setup-password?token=${setupToken}`;
 
   // 6. Send welcome email with secure setup link
   const message = `
@@ -129,11 +138,13 @@ const login = catchAsync(
     if (!email || !password)
       return next(new AppError("Please provide email and password", 400));
 
-    const user: User | null = await userService.getUserByLogin(email, password);
+    const user: SanitizedUserWithRole | null =
+      await userService.authenticateUser(email, password);
 
     if (!user) return next(new AppError("Incorrect email or password", 401));
 
-    const updatedUser = await userService.updateUserLastLogin(user.id);
+    const updatedUser: SanitizedUserWithRole =
+      await userService.updateUserLastLogin(user.id);
 
     await createSendToken(updatedUser, 200, res);
   }
@@ -205,31 +216,61 @@ const protect = catchAsync(
         new AppError("You are not logged in! Please log in to get access.", 401)
       );
 
-    // 2) Check if token is blacklisted
+    // 2) Get refresh token from cookie or body
+    const refreshToken = req.cookies.refreshToken || req.body.refresh_token;
+
+    if (!refreshToken)
+      return next(new AppError("Invalid session. Please log in again.", 401));
+
+    // 3) Check if access token is blacklisted
     const isBlacklisted = await tokenService.isTokenBlacklisted(token);
     if (isBlacklisted)
       return next(
         new AppError("Your session is invalid. Please log in again.", 401)
       );
 
-    // 3) Verify token
+    // 4) Verify access token
     let decoded: JwtPayload & { id: string };
+    let isAccessTokenExpired = false;
+
     try {
-      decoded = await (promisify(jwt.verify) as any)(token, jwtSecret);
+      // decoded = await (promisify(jwt.verify) as any)(token, jwtSecret);
+      decoded = jwtService.verifyToken(token) as any;
     } catch (error: any) {
-      if (error.name === "TokenExpiredError")
-        return next(
-          new AppError("Your login has expired. Please log in again.", 401)
-        );
-      else if (error.name === "JsonWebTokenError") {
+      if (error.name === "TokenExpiredError") {
+        // Access token expired - try to refresh it using refresh token
+        isAccessTokenExpired = true;
+        decoded = jwt.decode(token) as JwtPayload & { id: string };
+
+        if (!decoded || !decoded.id) {
+          return next(new AppError("Invalid token. Please log in again.", 401));
+        }
+      } else if (error.name === "JsonWebTokenError") {
         return next(new AppError("Invalid token. Please log in again.", 401));
+      } else {
+        return next(
+          new AppError("Authentication failed. Please log in again.", 401)
+        );
       }
-      return next(
-        new AppError("Authentication failed. Please log in again.", 401)
-      );
     }
 
-    // 3) Check if user still exists
+    // 5) Validate refresh token
+    const refreshTokenUser = await refreshTokenService.validateRefreshToken(
+      refreshToken
+    );
+
+    if (!refreshTokenUser)
+      return next(
+        new AppError("Invalid or expired session. Please log in again.", 401)
+      );
+
+    // 6) Verify both tokens belong to the same user
+    if (refreshTokenUser.id !== decoded.id)
+      return next(
+        new AppError("Session mismatch detected. Please log in again.", 401)
+      );
+
+    // 7) Check if user still exists
     const freshUser = await userService.getUserByIdWithCredentials(decoded.id);
 
     if (!freshUser)
@@ -240,6 +281,7 @@ const protect = catchAsync(
         )
       );
 
+    // 8) Check if password was changed after token was issued
     if (
       decoded.iat &&
       (await userService.changedPasswordAfter(
@@ -254,6 +296,39 @@ const protect = catchAsync(
         )
       );
 
+    // 9) If access token was expired, issue new tokens
+    if (isAccessTokenExpired) {
+      // Generate new access token
+      const newAccessToken = signToken(freshUser.id);
+
+      // Rotate refresh token for security
+      const newRefreshToken = await refreshTokenService.createRefreshToken(
+        freshUser.id
+      );
+
+      const cookieOptions = {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "strict" as const,
+      };
+
+      // Set new access token cookie
+      res.cookie("accessToken", newAccessToken, {
+        ...cookieOptions,
+        expires: new Date(Date.now() + 15 * 60 * 1000),
+      });
+
+      // Set new refresh token cookie
+      res.cookie("refreshToken", newRefreshToken, {
+        ...cookieOptions,
+        expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      });
+
+      // Add new tokens to response header for client awareness
+      res.setHeader("X-Access-Token-Refreshed", "true");
+      res.setHeader("X-New-Access-Token", newAccessToken);
+    }
+
     req.user = freshUser;
     next();
   }
@@ -261,9 +336,9 @@ const protect = catchAsync(
 
 const restrictTo = (...roles: string[]) => {
   return (req: Request, res: Response, next: NextFunction) => {
-    const userRoles = req.user.roles?.map((r) => r.role.name);
+    const userRole = req.user.role.name;
     // roles ['admin', 'lead-guide']. role='user'
-    if (!roles.some((r) => userRoles.includes(r))) {
+    if (!roles.includes(userRole)) {
       return next(
         new AppError("You do not have permission to perform this action", 403)
       );
@@ -296,7 +371,7 @@ const updatePassword = catchAsync(
         )
       );
 
-    const updatedUser: SanitizedUser = await userService.updateUserPassword(
+    const updatedUser = await userService.updateUserPassword(
       req.user.id,
       req.body.password
     );
@@ -374,22 +449,27 @@ const resetPassword = catchAsync(
 
 const createUser = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
-    // 1. Check if the creator is an admin
-    // if (!req.user || req.user.role !== "admin") {
-    //   return next(
-    //     new AppError("You do not have permission to perform this action", 403)
-    //   );
-    // }
-
     const { username, email } = req.body;
 
     if (!username) return next(new AppError("Please provide a username", 400));
     if (!email)
       return next(new AppError("Please provide your email address", 400));
 
+    const usernameExists = await userService.getUserByUsername(username);
+    if (usernameExists)
+      return next(
+        new AppError("Username already exists. Please use a new one", 404)
+      );
+
+    const emailExists = await userService.getUserByEmail(email);
+    if (emailExists)
+      return next(
+        new AppError("Email already exists. Please use a new one", 404)
+      );
+
     try {
       // 2. Generate a secure temporary password
-      const tempPassword = generateTempPassword();
+      const tempPassword = generateTempPassword(12, "base64");
 
       // 3. Create user with temporary password and force_password_change flag
       const newUser = await userService.createUser(
@@ -422,6 +502,27 @@ const createUser = catchAsync(
   }
 );
 
+const getUserBySetupToken = catchAsync(
+  async (req: Request, res: Response, next: NextFunction) => {
+    const user = await userService.getUserBySetupToken(req.params.token);
+
+    if (!user)
+      return next(
+        new AppError(
+          "This link has expired or is invalid. Please contact an administrator for a new one.",
+          400
+        )
+      );
+
+    res.status(200).json({
+      status: "success",
+      data: {
+        user,
+      },
+    });
+  }
+);
+
 const setupUser = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
     // 1. Verify the setup token and get user
@@ -435,9 +536,7 @@ const setupUser = catchAsync(
         )
       );
 
-    const { email } = req.body.email;
-
-    if (!email)
+    if (!req.body.email)
       return next(new AppError("Please provide your email address", 400));
 
     // 2. Check if this is the correct user setting up their account
@@ -447,14 +546,12 @@ const setupUser = catchAsync(
       );
 
     // 3. Validate the new password
-    const { password, passwordConfirm } = req.body;
-
-    if (!password || !passwordConfirm)
+    if (!req.body.password || !req.body.passwordConfirm)
       return next(
         new AppError("Please provide a new password and confirm it", 400)
       );
 
-    if (password !== passwordConfirm)
+    if (req.body.password !== req.body.passwordConfirm)
       return next(
         new AppError("Password and password confirmation do not match", 400)
       );
@@ -470,7 +567,7 @@ const setupUser = catchAsync(
       // 5. Update user's password and clear setup token
       const updatedUser = await userService.completeUserSetup(
         user.id,
-        password
+        req.body.password
       );
 
       // 6. Send confirmation email
@@ -507,9 +604,7 @@ const regenerateSetupToken = catchAsync(
     const { email } = req.body;
 
     if (!email)
-      return next(
-        new AppError("Please provide your email address address", 400)
-      );
+      return next(new AppError("Please provide your email address", 400));
 
     try {
       const user = await userService.getUserByEmail(email);
@@ -579,6 +674,7 @@ export const authController = {
   forgotPassword,
   resetPassword,
   createUser,
+  getUserBySetupToken,
   setupUser,
   regenerateSetupToken,
   refreshToken,

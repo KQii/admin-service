@@ -26,7 +26,6 @@ router.post("/token", (req, res, next) => {
   }
 });
 
-// User info endpoint (Grafana needs this)
 router.get("/userinfo", oAuth2Controller.getUserInfo);
 
 // Token revocation endpoint (RFC 7009)

@@ -1,14 +1,16 @@
 import bcrypt from "bcryptjs";
 import { userModel } from "../models/userModel";
 import { User } from "@prisma/client";
-import { sanitizeUser, sanitizeUserWithRoles } from "../utils/dataTransformers";
-import { QueryResult } from "../utils/apiFeatures";
+import { sanitizeUser } from "../utils/dataTransformers";
+import { PrismaQueryBuilder } from "../utils/prismaQueryBuilder";
 import {
-  SanitizedUser,
-  UserWithRoles,
-  SanitizedUserWithRoles,
+  UserWithRole,
+  SanitizedUserWithRole,
+  UpdateUserDto,
 } from "../types/user.types";
-import { generateToken, hashedToken } from "../utils/token";
+import { hashedToken } from "../utils/token";
+import { generateRandomString as generateToken } from "../utils/generateRandomString";
+import { roleModel } from "../models/roleModel";
 
 export const userService = {
   correctPassword: async (candidatePassword: string, password: string) => {
@@ -16,7 +18,7 @@ export const userService = {
   },
 
   createPasswordResetToken: async (id: string) => {
-    const resetToken = generateToken();
+    const resetToken = generateToken(32, "hex");
     const passwordResetToken = hashedToken(resetToken);
 
     const user = await userService.updateUserPasswordResetToken(
@@ -29,7 +31,7 @@ export const userService = {
   },
 
   createSetupToken: async (id: string) => {
-    const setupToken = generateToken();
+    const setupToken = generateToken(32, "hex");
     const hashedSetupToken = hashedToken(setupToken);
 
     // Setup tokens can be valid longer than password reset tokens (24 hours)
@@ -53,65 +55,85 @@ export const userService = {
     return false;
   },
 
-  getAllUsers: async (
-    filters?: Record<string, any>,
-    page: number = 1,
-    limit: number = 10
-  ): Promise<QueryResult<SanitizedUserWithRoles>> => {
-    const skip = (page - 1) * limit;
-    const [users, total] = await Promise.all([
-      userModel.findAll(filters, skip, limit),
-      userModel.count(filters),
-    ]);
+  getAllUsers: async (queryString: any): Promise<any> => {
+    const queryBuilder = new PrismaQueryBuilder(queryString);
+
+    // Build the Prisma query
+    queryBuilder.filter().sort().limitFields().paginate();
+
+    const prismaQuery = queryBuilder.getQuery();
+    const { page, limit } = queryBuilder.getPaginationParams();
+
+    // Execute query with Prisma
+    const users = await userModel.findManyWithQuery(prismaQuery);
+
+    // Sanitize users to remove sensitive information
+    // Only sanitize if users have the complete structure (with role)
+    const sanitizedUsers = users.map((user: any) => {
+      // If user has the complete structure, sanitize it
+      if (user.role) {
+        return sanitizeUser(user as UserWithRole);
+      }
+      // If using field selection, just remove sensitive fields manually
+      const {
+        password,
+        password_changed_at,
+        password_reset_token,
+        password_reset_expires,
+        setup_token,
+        setup_expires,
+        refresh_token,
+        refresh_token_expires,
+        ...safeUser
+      } = user;
+      return safeUser;
+    });
+
+    // Get total count for pagination (with same filters)
+    const total = await userModel.count(prismaQuery.where);
+    const totalPages = Math.ceil(total / limit);
 
     return {
-      data: users.map((user) => sanitizeUserWithRoles(user as UserWithRoles)),
-      total,
-      page,
-      totalPages: Math.ceil(total / limit),
-      limit,
+      users: sanitizedUsers,
+      metadata: {
+        page,
+        limit,
+        total,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1,
+      },
     };
   },
 
-  getUserByLogin: async (email: string, candidatePassword: string) => {
-    const user: User | null = await userModel.findByEmail(email);
-
-    if (
-      !user ||
-      !(await userService.correctPassword(candidatePassword, user.password))
-    ) {
-      return null;
-    }
-    return user;
-  },
-  getUserById: async (id: string): Promise<SanitizedUserWithRoles | null> => {
-    const user: UserWithRoles | null = await userModel.findById(id);
+  getUserById: async (id: string): Promise<SanitizedUserWithRole | null> => {
+    const user: UserWithRole | null = await userModel.findById(id);
     if (!user) return null;
-    return sanitizeUserWithRoles(user);
+    return sanitizeUser(user);
   },
 
   // This method returns the complete user data including sensitive information
   // Use this method only for internal operations like authentication
   getUserByIdWithCredentials: async (id: string) => {
-    const user: User | null = await userModel.findById(id);
-    return user as UserWithRoles;
+    const user: UserWithRole | null = await userModel.findById(id);
+    return user as UserWithRole;
   },
 
   getUserByEmail: async (email: string) => {
-    const user: User | null = await userModel.findByEmail(email);
+    const user: UserWithRole | null = await userModel.findByEmail(email);
     if (!user) return null;
     else return user;
   },
 
   getUserByUsername: async (username: string) => {
-    const user: User | null = await userModel.findByUsername(username);
+    const user: UserWithRole | null = await userModel.findByUsername(username);
     if (!user) return null;
     else return user;
   },
 
   authenticateUser: async (email: string, password: string) => {
     // Try to find user by email first, then by email
-    let user: User | null = await userModel.findByEmail(email);
+    let user: UserWithRole | null = await userModel.findByEmail(email);
 
     if (
       !user ||
@@ -120,7 +142,7 @@ export const userService = {
       return null;
     }
 
-    return user;
+    return sanitizeUser(user);
   },
 
   getUserByResetToken: async (token: string) => {
@@ -132,18 +154,30 @@ export const userService = {
 
   getUserBySetupToken: async (token: string) => {
     const setupToken = hashedToken(token);
-    const user = await userModel.findBySetupToken(setupToken);
+    console.log(setupToken);
+    const user: UserWithRole | null = await userModel.findBySetupToken(
+      setupToken
+    );
 
-    return user;
+    if (!user) return null;
+
+    return sanitizeUser(user);
   },
 
   createUser: async (
     username: string,
     email: string,
     password: string
-  ): Promise<SanitizedUser> => {
+  ): Promise<SanitizedUserWithRole> => {
     const hashedPassword = await bcrypt.hash(password, 12);
-    const user = await userModel.createUser(username, email, hashedPassword);
+    const defaultRole = await roleModel.findByName("operator");
+
+    const user = await userModel.createUser(
+      username,
+      email,
+      hashedPassword,
+      defaultRole?.id!
+    );
 
     return sanitizeUser(user);
   },
@@ -173,18 +207,38 @@ export const userService = {
     const hashedPassword = await bcrypt.hash(password, 12);
     const updatedUser = await userModel.updatePasswordInfo(id, hashedPassword);
 
-    return updatedUser;
+    return sanitizeUser(updatedUser);
   },
 
   completeUserSetup: async (
     id: string,
     password: string
-  ): Promise<SanitizedUser> => {
+  ): Promise<SanitizedUserWithRole> => {
     const hashedPassword = await bcrypt.hash(password, 12);
 
     // Update password, clear setup token, and mark setup as complete
     const updatedUser = await userModel.completeSetup(id, hashedPassword);
 
     return sanitizeUser(updatedUser);
+  },
+
+  updateUserByIsActive: async (
+    id: string,
+    user: UpdateUserDto
+  ): Promise<SanitizedUserWithRole> => {
+    const updatedUser = await userModel.updateIsActive(id, user.is_active!);
+    return sanitizeUser(updatedUser);
+  },
+
+  updateUserByRoleId: async (
+    id: string,
+    user: UpdateUserDto
+  ): Promise<SanitizedUserWithRole> => {
+    const updatedUser = await userModel.updateRoleId(id, user.roleId!);
+    return sanitizeUser(updatedUser);
+  },
+
+  deleteUser: async (id: string): Promise<void> => {
+    await userModel.deleteUser(id);
   },
 };

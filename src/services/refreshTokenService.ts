@@ -1,14 +1,11 @@
 import crypto from "crypto";
 import { userModel } from "../models/userModel";
 import { parseTimeToSeconds } from "../utils/timeParser";
+import { generateRandomString as generateRefreshToken } from "../utils/generateRandomString";
 
 export const refreshTokenService = {
-  generateRefreshToken: (): string => {
-    return crypto.randomBytes(64).toString("hex");
-  },
-
   createRefreshToken: async (userId: string): Promise<string> => {
-    const refreshToken = refreshTokenService.generateRefreshToken();
+    const refreshToken = generateRefreshToken(64, "hex");
 
     const expiresIn = process.env.REFRESH_TOKEN_EXPIRES_IN || "7d";
     const expiresInMiliseconds = parseTimeToSeconds(expiresIn) * 1000;

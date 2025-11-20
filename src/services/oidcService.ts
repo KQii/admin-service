@@ -1,6 +1,6 @@
 import { Request } from "express";
 import { jwtService } from "./jwtService";
-import { SanitizedUserWithRoles } from "../types/user.types";
+import { SanitizedUserWithRole } from "../types/user.types";
 
 export const oidcService = {
   // Generate OpenID Configuration
@@ -83,7 +83,7 @@ export const oidcService = {
 
   // Generate ID Token for OIDC using RS256
   generateIDToken: async (
-    user: SanitizedUserWithRoles,
+    user: SanitizedUserWithRole,
     clientId: string,
     nonce?: string
   ) => {
@@ -94,14 +94,14 @@ export const oidcService = {
       auth_time: now,
 
       // Standard claims
-      name: user.full_name,
+      name: user.username,
       email: user.email,
       preferred_username: user.username,
       email_verified: true,
 
       // Custom claims
-      roles: user.roles?.map((r: any) => r.name) || [],
-      groups: user.roles?.map((r: any) => r.name) || [],
+      roles: user.role,
+      groups: user.role,
 
       // Nonce for security (if provided)
       ...(nonce && { nonce }),

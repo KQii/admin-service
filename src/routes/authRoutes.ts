@@ -9,16 +9,22 @@ router.post("/login", authController.login);
 router.post("/logout", authController.protect, authController.logout);
 router.post("/refresh", authController.refreshToken);
 
-router.post("/forgotPassword", authController.forgotPassword);
-router.patch("/resetPassword/:token", authController.resetPassword);
+router.post("/forgot-password", authController.forgotPassword);
+router.patch("/reset-password/:token", authController.resetPassword);
 router.patch(
-  "/updateMyPassword",
+  "/update-password",
   authController.protect,
   authController.updatePassword
 );
 
-router.post("/create", authController.protect, authController.createUser);
-router.patch("/setupAccount/:token", authController.setupUser);
+router.post(
+  "/create",
+  // authController.protect,
+  // authController.restrictTo("admin"),
+  authController.createUser
+);
+router.get("/setup-user/:token", authController.getUserBySetupToken);
+router.patch("/setup-user/:token", authController.setupUser);
 router.patch(
   "/regenerateToken",
   authController.protect,

@@ -60,6 +60,17 @@ export const userModel = {
       },
     }),
 
+  findByEmailAndVerified: (email: string, is_verified: boolean) =>
+    prisma.user.findUnique({
+      where: {
+        email,
+        is_verified,
+      },
+      include: {
+        role: true,
+      },
+    }),
+
   findByUsername: (username: string) =>
     prisma.user.findUnique({
       where: {
@@ -83,9 +94,10 @@ export const userModel = {
       },
     }),
 
-  findBySetupToken: (token: string) =>
+  findBySetupTokenAndNotVerified: (token: string, is_verified: boolean) =>
     prisma.user.findFirst({
       where: {
+        is_verified,
         setup_token: token,
         setup_expires: {
           gt: new Date(Date.now()),
@@ -100,6 +112,7 @@ export const userModel = {
     username: string,
     email: string,
     password: string,
+    is_verified: boolean,
     roleId: string
   ) =>
     prisma.user.create({
@@ -107,6 +120,7 @@ export const userModel = {
         username,
         email,
         password,
+        is_verified,
         roleId,
       },
       include: {
@@ -187,14 +201,14 @@ export const userModel = {
       },
     }),
 
-  completeSetup: (id: string, password: string) =>
+  completeSetup: (id: string, password: string, is_verified: boolean) =>
     prisma.user.update({
       where: {
         id,
       },
       data: {
         password,
-        is_verified: true,
+        is_verified,
         setup_token: null,
         setup_expires: null,
         password_changed_at: new Date(Date.now() - 1000),

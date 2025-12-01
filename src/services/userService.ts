@@ -131,8 +131,16 @@ export const userService = {
     else return user;
   },
 
+  getUserByEmailAndVerified: async (email: string, isVerified: boolean) => {
+    const user: UserWithRole | null = await userModel.findByEmailAndVerified(
+      email,
+      isVerified
+    );
+    if (!user) return null;
+    else return user;
+  },
+
   authenticateUser: async (email: string, password: string) => {
-    // Try to find user by email first, then by email
     let user: UserWithRole | null = await userModel.findByEmail(email);
 
     if (
@@ -152,12 +160,12 @@ export const userService = {
     return user;
   },
 
-  getUserBySetupToken: async (token: string) => {
+  getUserBySetupTokenAndNotVerified: async (token: string) => {
     const setupToken = hashedToken(token);
-    console.log(setupToken);
-    const user: UserWithRole | null = await userModel.findBySetupToken(
-      setupToken
-    );
+    const isVerified = false;
+
+    const user: UserWithRole | null =
+      await userModel.findBySetupTokenAndNotVerified(setupToken, isVerified);
 
     if (!user) return null;
 
@@ -171,11 +179,13 @@ export const userService = {
   ): Promise<SanitizedUserWithRole> => {
     const hashedPassword = await bcrypt.hash(password, 12);
     const defaultRole = await roleModel.findByName("operator");
+    const isVerified = false;
 
     const user = await userModel.createUser(
       username,
       email,
       hashedPassword,
+      isVerified,
       defaultRole?.id!
     );
 
@@ -215,9 +225,14 @@ export const userService = {
     password: string
   ): Promise<SanitizedUserWithRole> => {
     const hashedPassword = await bcrypt.hash(password, 12);
+    const isVerified = true;
 
     // Update password, clear setup token, and mark setup as complete
-    const updatedUser = await userModel.completeSetup(id, hashedPassword);
+    const updatedUser = await userModel.completeSetup(
+      id,
+      hashedPassword,
+      isVerified
+    );
 
     return sanitizeUser(updatedUser);
   },

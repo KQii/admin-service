@@ -138,6 +138,24 @@ const login = catchAsync(
     if (!email || !password)
       return next(new AppError("Please provide email and password", 400));
 
+    const existedUser = await userService.getUserByEmail(email);
+
+    if (!existedUser)
+      return next(new AppError("Incorrect email or password", 401));
+
+    const verifiedUser = await userService.getUserByEmailAndVerified(
+      email,
+      true
+    );
+
+    if (!verifiedUser)
+      return next(
+        new AppError(
+          "Account is not verified, please check your email to finish setting up your account",
+          401
+        )
+      );
+
     const user: SanitizedUserWithRole | null =
       await userService.authenticateUser(email, password);
 
@@ -216,35 +234,23 @@ const protect = catchAsync(
         new AppError("You are not logged in! Please log in to get access.", 401)
       );
 
-    // 2) Get refresh token from cookie or body
-    const refreshToken = req.cookies.refreshToken || req.body.refresh_token;
-
-    if (!refreshToken)
-      return next(new AppError("Invalid session. Please log in again.", 401));
-
-    // 3) Check if access token is blacklisted
+    // 2) Check if access token is blacklisted
     const isBlacklisted = await tokenService.isTokenBlacklisted(token);
     if (isBlacklisted)
       return next(
         new AppError("Your session is invalid. Please log in again.", 401)
       );
 
-    // 4) Verify access token
+    // 3) Verify access token
     let decoded: JwtPayload & { id: string };
-    let isAccessTokenExpired = false;
 
     try {
-      // decoded = await (promisify(jwt.verify) as any)(token, jwtSecret);
       decoded = jwtService.verifyToken(token) as any;
     } catch (error: any) {
       if (error.name === "TokenExpiredError") {
-        // Access token expired - try to refresh it using refresh token
-        isAccessTokenExpired = true;
-        decoded = jwt.decode(token) as JwtPayload & { id: string };
-
-        if (!decoded || !decoded.id) {
-          return next(new AppError("Invalid token. Please log in again.", 401));
-        }
+        return next(
+          new AppError("Access token expired. Please log in again.", 401)
+        );
       } else if (error.name === "JsonWebTokenError") {
         return next(new AppError("Invalid token. Please log in again.", 401));
       } else {
@@ -254,23 +260,7 @@ const protect = catchAsync(
       }
     }
 
-    // 5) Validate refresh token
-    const refreshTokenUser = await refreshTokenService.validateRefreshToken(
-      refreshToken
-    );
-
-    if (!refreshTokenUser)
-      return next(
-        new AppError("Invalid or expired session. Please log in again.", 401)
-      );
-
-    // 6) Verify both tokens belong to the same user
-    if (refreshTokenUser.id !== decoded.id)
-      return next(
-        new AppError("Session mismatch detected. Please log in again.", 401)
-      );
-
-    // 7) Check if user still exists
+    // 4) Check if user still exists
     const freshUser = await userService.getUserByIdWithCredentials(decoded.id);
 
     if (!freshUser)
@@ -281,7 +271,7 @@ const protect = catchAsync(
         )
       );
 
-    // 8) Check if password was changed after token was issued
+    // 5) Check if password was changed after token was issued
     if (
       decoded.iat &&
       (await userService.changedPasswordAfter(
@@ -295,39 +285,6 @@ const protect = catchAsync(
           401
         )
       );
-
-    // 9) If access token was expired, issue new tokens
-    if (isAccessTokenExpired) {
-      // Generate new access token
-      const newAccessToken = signToken(freshUser.id);
-
-      // Rotate refresh token for security
-      const newRefreshToken = await refreshTokenService.createRefreshToken(
-        freshUser.id
-      );
-
-      const cookieOptions = {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "strict" as const,
-      };
-
-      // Set new access token cookie
-      res.cookie("accessToken", newAccessToken, {
-        ...cookieOptions,
-        expires: new Date(Date.now() + 15 * 60 * 1000),
-      });
-
-      // Set new refresh token cookie
-      res.cookie("refreshToken", newRefreshToken, {
-        ...cookieOptions,
-        expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-      });
-
-      // Add new tokens to response header for client awareness
-      res.setHeader("X-Access-Token-Refreshed", "true");
-      res.setHeader("X-New-Access-Token", newAccessToken);
-    }
 
     req.user = freshUser;
     next();
@@ -504,7 +461,9 @@ const createUser = catchAsync(
 
 const getUserBySetupToken = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
-    const user = await userService.getUserBySetupToken(req.params.token);
+    const user = await userService.getUserBySetupTokenAndNotVerified(
+      req.params.token
+    );
 
     if (!user)
       return next(
@@ -526,7 +485,9 @@ const getUserBySetupToken = catchAsync(
 const setupUser = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
     // 1. Verify the setup token and get user
-    const user = await userService.getUserBySetupToken(req.params.token);
+    const user = await userService.getUserBySetupTokenAndNotVerified(
+      req.params.token
+    );
 
     if (!user)
       return next(

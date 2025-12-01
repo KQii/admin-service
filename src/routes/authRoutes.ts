@@ -19,8 +19,8 @@ router.patch(
 
 router.post(
   "/create",
-  // authController.protect,
-  // authController.restrictTo("admin"),
+  authController.protect,
+  authController.restrictTo("admin"),
   authController.createUser
 );
 router.get("/setup-user/:token", authController.getUserBySetupToken);

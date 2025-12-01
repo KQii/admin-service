@@ -28,6 +28,25 @@ const signToken = (id: string, audience?: string): string => {
   return jwtService.signToken(id, audience);
 };
 
+const getUserFromRequest = async (req: Request) => {
+  let token;
+
+  if (req.cookies.accessToken) {
+    token = req.cookies.accessToken;
+  }
+
+  if (!token) return null;
+
+  try {
+    // Verify token và lấy user từ DB
+    const decoded = jwtService.verifyToken(token) as any;
+    const currentUser = await userService.getUserById(decoded.id);
+    return currentUser;
+  } catch (err) {
+    return null;
+  }
+};
+
 const createSendTokenWithOAuth2 = async (
   user: SanitizedUserWithRole,
   statusCode: number,
@@ -79,6 +98,18 @@ const createSendTokenWithOAuth2 = async (
       scope: "openid profile email",
     };
 
+    const sessionToken = accessToken;
+    const cookieOptions = {
+      expires: new Date(Date.now() + 15 * 60 * 1000),
+      httpOnly: true,
+      secure: true,
+      domain: ".lvh.me",
+      path: "/",
+      sameSite: "lax" as const,
+    };
+    res.cookie("accessToken", sessionToken, cookieOptions);
+    console.log("✅ Session cookie:", sessionToken);
+
     res.status(statusCode).json(response);
   } catch (error) {
     console.error("❌ Error in createSendTokenWithOAuth2:", error);
@@ -89,6 +120,39 @@ const createSendTokenWithOAuth2 = async (
 // OAuth2 authorize endpoint
 const authorize = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
+    res.setHeader(
+      "Cache-Control",
+      "no-store, no-cache, must-revalidate, proxy-revalidate"
+    );
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+    res.setHeader("Surrogate-Control", "no-store");
+
+    const currentUser = await getUserFromRequest(req);
+
+    if (currentUser) {
+      console.log("✅ User already logged in. Auto-redirecting...");
+
+      const { state } = req.query;
+      let targetUrl = "https://admin.lvh.me"; // Mặc định nếu không tìm thấy đích
+
+      // Logic "bóc tách" URL đích từ tham số state
+      // State của oauth2-proxy dạng: "random_hash:target_url"
+      if (state && typeof state === "string") {
+        const parts = state.split(":");
+        const foundUrl = parts.find((p) => p.startsWith("http"));
+
+        if (foundUrl) {
+          const httpIndex = state.indexOf("http");
+          if (httpIndex !== -1) {
+            targetUrl = state.substring(httpIndex);
+          }
+        }
+      }
+
+      return res.redirect(targetUrl);
+    }
+
     const { response_type, client_id, redirect_uri, scope, state } = req.query;
 
     // Validate required parameters
@@ -106,6 +170,10 @@ const authorize = catchAsync(
       return next(new AppError("redirect_uri is required", 400));
     }
 
+    if (!state) {
+      return next(new AppError("state is required", 400));
+    }
+
     // Validate client
     // const clientConfig = VALID_CLIENTS[client_id as keyof typeof VALID_CLIENTS];
     // if (!clientConfig) {
@@ -120,13 +188,119 @@ const authorize = catchAsync(
     console.log("✅ Authorization request validated");
 
     // Return HTML login form instead of redirecting
+    // const loginForm = `
+    // <!DOCTYPE html>
+    // <html>
+    // <head>
+    //     <title>Admin Service - Login</title>
+    //     <meta charset="utf-8">
+    //     <meta name="viewport" content="width=device-width, initial-scale=1">
+    //     <style>
+    //         body {
+    //             font-family: Arial, sans-serif;
+    //             max-width: 400px;
+    //             margin: 50px auto;
+    //             padding: 20px;
+    //             background-color: #f5f5f5;
+    //         }
+    //         .login-form {
+    //             background: white;
+    //             padding: 30px;
+    //             border-radius: 8px;
+    //             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    //         }
+    //         .form-group {
+    //             margin-bottom: 20px;
+    //         }
+    //         label {
+    //             display: block;
+    //             margin-bottom: 5px;
+    //             font-weight: bold;
+    //         }
+    //         input[type="email"], input[type="password"] {
+    //             width: 100%;
+    //             padding: 10px;
+    //             border: 1px solid #ddd;
+    //             border-radius: 4px;
+    //             box-sizing: border-box;
+    //         }
+    //         button {
+    //             width: 100%;
+    //             padding: 12px;
+    //             background-color: #007bff;
+    //             color: white;
+    //             border: none;
+    //             border-radius: 4px;
+    //             cursor: pointer;
+    //             font-size: 16px;
+    //         }
+    //         button:hover {
+    //             background-color: #0056b3;
+    //         }
+    //         .error {
+    //             color: red;
+    //             margin-bottom: 15px;
+    //             padding: 10px;
+    //             background-color: #f8d7da;
+    //             border: 1px solid #f5c6cb;
+    //             border-radius: 4px;
+    //         }
+    //         h2 {
+    //             text-align: center;
+    //             margin-bottom: 30px;
+    //             color: #333;
+    //         }
+    //     </style>
+    // </head>
+    // <body>
+    //     <div class="login-form">
+    //         <h2>Login to Admin Service</h2>
+    //         <div id="error-message" class="error" style="display: none;"></div>
+    //         <form id="loginForm" action="/oauth2/login?${new URLSearchParams(
+    //           req.query as any
+    //         ).toString()}" method="POST">
+    //             <div class="form-group">
+    //                 <label for="email">Email:</label>
+    //                 <input type="email" id="email" name="email" required>
+    //             </div>
+    //             <div class="form-group">
+    //                 <label for="password">Password:</label>
+    //                 <input type="password" id="password" name="password" required>
+    //             </div>
+    //             <button type="submit">Login</button>
+    //         </form>
+    //     </div>
+
+    //     <script>
+    //         document.getElementById('loginForm').addEventListener('submit', function(e) {
+    //             const email = document.getElementById('email').value;
+    //             const password = document.getElementById('password').value;
+
+    //             if (!email || !password) {
+    //                 e.preventDefault();
+    //                 document.getElementById('error-message').textContent = 'Email and password are required';
+    //                 document.getElementById('error-message').style.display = 'block';
+    //             }
+    //         });
+
+    //         // Show error from URL params if redirected back
+    //         const urlParams = new URLSearchParams(window.location.search);
+    //         const error = urlParams.get('error');
+    //         if (error) {
+    //             const errorDiv = document.getElementById('error-message');
+    //             errorDiv.textContent = error === 'invalid_credentials' ? 'Invalid email or password' : 'Login failed';
+    //             errorDiv.style.display = 'block';
+    //         }
+    //     </script>
+    // </body>
+    // </html>
+    // `;
+
     const loginForm = `
     <!DOCTYPE html>
     <html>
     <head>
         <title>Admin Service - Login</title>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1">
         <style>
             body {
                 font-family: Arial, sans-serif;
@@ -140,6 +314,7 @@ const authorize = catchAsync(
                 padding: 30px;
                 border-radius: 8px;
                 box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                position: relative;
             }
             .form-group {
                 margin-bottom: 20px;
@@ -165,9 +340,14 @@ const authorize = catchAsync(
                 border-radius: 4px;
                 cursor: pointer;
                 font-size: 16px;
+                position: relative;
             }
-            button:hover {
+            button:hover:not(:disabled) {
                 background-color: #0056b3;
+            }
+            button:disabled {
+                background-color: #6c757d;
+                cursor: not-allowed;
             }
             .error {
                 color: red;
@@ -182,15 +362,62 @@ const authorize = catchAsync(
                 margin-bottom: 30px;
                 color: #333;
             }
+            
+            /* Loader Styles */
+            .loader-overlay {
+                position: absolute;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: rgba(255, 255, 255, 0.9);
+                display: none;
+                align-items: center;
+                justify-content: center;
+                border-radius: 8px;
+                z-index: 1000;
+            }
+            .loader-overlay.active {
+                display: flex;
+            }
+            .spinner {
+                border: 4px solid #f3f3f3;
+                border-top: 4px solid #007bff;
+                border-radius: 50%;
+                width: 40px;
+                height: 40px;
+                animation: spin 1s linear infinite;
+            }
+            @keyframes spin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+            }
+            .loader-text {
+                margin-top: 15px;
+                color: #333;
+                font-weight: 500;
+            }
+            .loader-content {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+            }
         </style>
     </head>
     <body>
         <div class="login-form">
+            <!-- Loader Overlay -->
+            <div id="loader-overlay" class="loader-overlay">
+                <div class="loader-content">
+                    <div class="spinner"></div>
+                    <div class="loader-text">Logging in...</div>
+                </div>
+            </div>
+
             <h2>Login to Admin Service</h2>
             <div id="error-message" class="error" style="display: none;"></div>
-            <form id="loginForm" action="/api/v1/oauth2/login?${new URLSearchParams(
-              req.query as any
-            ).toString()}" method="POST">
+            
+            <form id="loginForm"> 
                 <div class="form-group">
                     <label for="email">Email:</label>
                     <input type="email" id="email" name="email" required>
@@ -199,36 +426,76 @@ const authorize = catchAsync(
                     <label for="password">Password:</label>
                     <input type="password" id="password" name="password" required>
                 </div>
-                <button type="submit">Login</button>
+                <button type="submit" id="btn-submit">Login</button>
             </form>
         </div>
 
         <script>
-            document.getElementById('loginForm').addEventListener('submit', function(e) {
+            document.getElementById('loginForm').addEventListener('submit', async function(e) {
+                e.preventDefault();
+                
                 const email = document.getElementById('email').value;
                 const password = document.getElementById('password').value;
+                const submitBtn = document.getElementById('btn-submit');
+                const errorDiv = document.getElementById('error-message');
+                const loaderOverlay = document.getElementById('loader-overlay');
+                const emailInput = document.getElementById('email');
+                const passwordInput = document.getElementById('password');
                 
-                if (!email || !password) {
-                    e.preventDefault();
-                    document.getElementById('error-message').textContent = 'Email and password are required';
-                    document.getElementById('error-message').style.display = 'block';
+                // Reset error and show loader
+                errorDiv.style.display = 'none';
+                loaderOverlay.classList.add('active');
+                submitBtn.disabled = true;
+                emailInput.disabled = true;
+                passwordInput.disabled = true;
+
+                // Get query params from current URL
+                const params = new URLSearchParams(window.location.search);
+                const queryData = Object.fromEntries(params.entries());
+
+                try {
+                    const response = await fetch('/oauth2/login', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            email: email,
+                            password: password,
+                            ...queryData
+                        })
+                    });
+
+                    const result = await response.json();
+
+                    if (response.ok) {
+                        // Success - redirect
+                        window.location.replace(result.redirectUrl);
+                    } else {
+                        // Error - hide loader and show error
+                        throw new Error(result.message || 'Login failed');
+                    }
+                } catch (err) {
+                    // Hide loader
+                    loaderOverlay.classList.remove('active');
+                    
+                    // Show error
+                    errorDiv.textContent = err.message;
+                    errorDiv.style.display = 'block';
+                    
+                    // Re-enable form
+                    submitBtn.disabled = false;
+                    emailInput.disabled = false;
+                    passwordInput.disabled = false;
                 }
             });
-
-            // Show error from URL params if redirected back
-            const urlParams = new URLSearchParams(window.location.search);
-            const error = urlParams.get('error');
-            if (error) {
-                const errorDiv = document.getElementById('error-message');
-                errorDiv.textContent = error === 'invalid_credentials' ? 'Invalid email or password' : 'Login failed';
-                errorDiv.style.display = 'block';
-            }
         </script>
     </body>
     </html>
     `;
 
-    res.setHeader("Content-Type", "text/html");
+    // res.setHeader("Content-Type", "text/html");
+    res.setHeader("Cache-Control", "no-store, no-cache");
     res.status(200).send(loginForm);
   }
 );
@@ -237,11 +504,29 @@ const authorize = catchAsync(
 const login = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
     const { email, password } = req.body;
-    const { response_type, client_id, redirect_uri, scope, state } = req.query;
+    const { response_type, client_id, redirect_uri, scope, state } = req.body;
 
     if (!email || !password) {
       return next(new AppError("Email and password are required", 400));
     }
+
+    const existedUser = await userService.getUserByEmail(email);
+
+    if (!existedUser)
+      return next(new AppError("Incorrect email or password", 401));
+
+    const verifiedUser = await userService.getUserByEmailAndVerified(
+      email,
+      true
+    );
+
+    if (!verifiedUser)
+      return next(
+        new AppError(
+          "Account is not verified, please check your email to finish setting up your account",
+          401
+        )
+      );
 
     const user = await userService.authenticateUser(email, password);
 
@@ -292,7 +577,11 @@ const login = catchAsync(
     }
 
     console.log("🔄 Redirecting with auth code to:", url.toString());
-    res.redirect(url.toString());
+    // res.redirect(url.toString());
+    res.status(200).json({
+      status: "success",
+      redirectUrl: url.toString(),
+    });
   }
 );
 
@@ -439,6 +728,7 @@ const refreshToken = catchAsync(
       );
 
       if (!validatedUser) {
+        console.log("Invalidate user");
         res.status(401).json({
           error: "invalid_grant",
           error_description: "Invalid or expired refresh token",
@@ -450,6 +740,7 @@ const refreshToken = catchAsync(
       const user = await userService.getUserById(validatedUser.id);
 
       if (!user) {
+        console.log("User no longer exists");
         res.status(401).json({
           error: "invalid_grant",
           error_description: "User no longer exists",

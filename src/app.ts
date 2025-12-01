@@ -12,6 +12,8 @@ import globalErrorHandler from "./middlewares/errorController";
 
 const app = express();
 
+app.set("trust proxy", 1);
+
 if (process.env.NODE_ENV === "development") {
   app.use(morgan("dev"));
 }
@@ -30,12 +32,12 @@ app.use(
 app.use("/.well-known", wellKnownRouter);
 
 app.use("/api/v1/auth", authRouter);
-app.use("/api/v1/oauth2", oAuth2Router);
+app.use("/oauth2", oAuth2Router);
 app.use("/api/v1/users", userRouter);
 app.use("/api/v1/roles", roleRouter);
 
-app.get("/", (_, res: Response) => {
-  res.json({ status: "ok", service: "Admin Service" });
+app.get("/health", (_, res: Response) => {
+  res.status(200).json({ status: "ok", service: "Admin Service" });
 });
 
 app.use((req: Request, res: Response, next: NextFunction) => {

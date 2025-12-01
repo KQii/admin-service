@@ -15,7 +15,7 @@ export const userController = {
     async (req: Request, res: Response, next: NextFunction) => {
       const result = await userService.getAllUsers(req.query);
 
-      return res.json({
+      return res.status(200).json({
         success: true,
         data: result.users,
         pagination: result.metadata,
@@ -36,24 +36,6 @@ export const userController = {
         data: {
           user,
         },
-      });
-    }
-  ),
-
-  getUserWithOAuth2: catchAsync(
-    async (req: Request, res: Response, next: NextFunction) => {
-      const user = await userService.getUserById(req.user.id);
-
-      if (!user) {
-        return next(new AppError("No user found with that ID", 404));
-      }
-
-      res.status(200).json({
-        sub: user.id,
-        preferred_username: user.username,
-        email: user.email,
-        name: user.username,
-        role: user.role,
       });
     }
   ),

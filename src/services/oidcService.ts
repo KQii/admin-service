@@ -11,9 +11,9 @@ export const oidcService = {
 
     return {
       issuer: baseUrl,
-      authorization_endpoint: `${baseUrl}/api/v1/oauth2/authorize`,
-      token_endpoint: `${baseUrl}/api/v1/oauth2/token`,
-      userinfo_endpoint: `${baseUrl}/api/v1/oauth2/userinfo`,
+      authorization_endpoint: `${baseUrl}/oauth2/authorize`,
+      token_endpoint: `${baseUrl}/oauth2/token`,
+      userinfo_endpoint: `${baseUrl}/oauth2/userinfo`,
       jwks_uri: `${baseUrl}/.well-known/jwks.json`,
 
       // Supported response types
@@ -57,8 +57,8 @@ export const oidcService = {
       code_challenge_methods_supported: ["plain", "S256"],
 
       // Additional endpoints
-      revocation_endpoint: `${baseUrl}/api/v1/oauth2/revoke`,
-      introspection_endpoint: `${baseUrl}/api/v1/oauth2/introspect`,
+      revocation_endpoint: `${baseUrl}/oauth2/revoke`,
+      introspection_endpoint: `${baseUrl}/oauth2/introspect`,
     };
   },
 
@@ -100,8 +100,8 @@ export const oidcService = {
       email_verified: true,
 
       // Custom claims
-      roles: user.role,
-      groups: user.role,
+      role: user.role.name,
+      groups: user.role.name,
 
       // Nonce for security (if provided)
       ...(nonce && { nonce }),

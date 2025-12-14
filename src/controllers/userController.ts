@@ -51,6 +51,21 @@ export const userController = {
         return next(new AppError("No user found with that ID", 404));
       }
 
+      if (user.id === req.user.id) {
+        return next(
+          new AppError("You are not allowed to update your status", 403)
+        );
+      }
+
+      if (user.role.name === "admin") {
+        return next(
+          new AppError(
+            "You are not allowed to update the status of an admin account",
+            403
+          )
+        );
+      }
+
       const updatedUser = await userService.updateUserByIsActive(
         req.params.id,
         req.body
@@ -72,6 +87,21 @@ export const userController = {
       const user = await userService.getUserById(req.params.id);
       if (!user) {
         return next(new AppError("No user found with that ID", 404));
+      }
+
+      if (user.id === req.user.id) {
+        return next(
+          new AppError("You are not allowed to change your role", 403)
+        );
+      }
+
+      if (user.role.name === "admin") {
+        return next(
+          new AppError(
+            "You are not allowed to change the role of an admin account",
+            403
+          )
+        );
       }
 
       const role = await roleService.getRoleById(req.body.roleId);
@@ -97,6 +127,18 @@ export const userController = {
 
       if (!user) {
         return next(new AppError("No user found with that ID", 404));
+      }
+
+      if (user.id === req.user.id) {
+        return next(
+          new AppError("You are not allowed to delete your status", 403)
+        );
+      }
+
+      if (user.role.name === "admin") {
+        return next(
+          new AppError("You are not allowed to delete an admin account", 403)
+        );
       }
 
       await userService.deleteUser(req.params.id);

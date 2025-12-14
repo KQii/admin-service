@@ -47,42 +47,9 @@ model Role {
   description String
 
   users User[]
-  // permissions RolePermission[]
-  // users       UserRole[]
 
   @@map("roles")
 }
-
-// model Permission {
-//   id   String @id @default(uuid())
-//   name String @unique
-
-//   roles RolePermission[]
-
-//   @@map("permissions")
-// }
-
-// model RolePermission {
-//   role_id       String
-//   permission_id String
-
-//   role       Role       @relation(fields: [role_id], references: [id])
-//   permission Permission @relation(fields: [permission_id], references: [id])
-
-//   @@id([role_id, permission_id])
-//   @@map("role_permissions")
-// }
-
-// model UserRole {
-//   user_id String @default(uuid())
-//   role_id String @default(uuid())
-
-//   user User @relation(fields: [user_id], references: [id])
-//   role Role @relation(fields: [role_id], references: [id])
-
-//   @@id([user_id, role_id])
-//   @@map("user_roles")
-// }
 
 model AuditLog {
   id            BigInt   @id
@@ -97,21 +64,3 @@ model AuditLog {
 
   @@map("audit_logs")
 }
-
-// model Alert {
-//   id                    String   @id @default(uuid())
-//   alertmanager_alert_id String
-//   status                String
-//   severity              String
-//   summary               String
-//   labels                Json
-//   annotations           Json
-//   starts_at             DateTime @db.Timestamptz()
-//   ends_at               DateTime @db.Timestamptz()
-//   acknowledged_by       String
-//   actions               Json
-
-//   user User @relation(fields: [acknowledged_by], references: [id])
-
-//   @@map("alerts")
-// }

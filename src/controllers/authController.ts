@@ -143,12 +143,7 @@ const login = catchAsync(
     if (!existedUser)
       return next(new AppError("Incorrect email or password", 401));
 
-    const verifiedUser = await userService.getUserByEmailAndVerified(
-      email,
-      true
-    );
-
-    if (!verifiedUser)
+    if (!existedUser.is_verified)
       return next(
         new AppError(
           "Account is not verified, please check your email to finish setting up your account",

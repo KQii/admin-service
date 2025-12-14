@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from "express";
+import type { JwtPayload } from "jsonwebtoken";
 import { oidcService } from "../services/oidcService";
 import { jwtService } from "../services/jwtService";
 import { authCodeService } from "../services/authCodeService";
@@ -6,11 +7,7 @@ import { userService } from "../services/userService";
 import { refreshTokenService } from "../services/refreshTokenService";
 import { tokenService } from "../services/tokenService";
 import AppError from "../middlewares/appError";
-import {
-  LoginCredentials,
-  UserWithRole,
-  SanitizedUserWithRole,
-} from "../types/user.types";
+import { SanitizedUserWithRole } from "../types/user.types";
 import { catchAsync } from "../utils/catchAsync";
 import { generateRandomString as generateToken } from "../utils/generateRandomString";
 import { parseTimeToSeconds } from "../utils/timeParser";
@@ -78,10 +75,13 @@ const createSendTokenWithOAuth2 = async (
       refreshToken = await refreshTokenService.createRefreshToken(user.id);
     }
 
+    const targetClientId =
+      clientId || process.env.OAUTH2_CLIENT_ID || "default";
+
     // Generate ID token for OIDC compliance
     const idToken = await oidcService.generateIDToken(
       user,
-      clientId || "default",
+      targetClientId,
       nonce
     );
 
@@ -187,14 +187,11 @@ const authorize = catchAsync(
 
     console.log("✅ Authorization request validated");
 
-    // Return HTML login form instead of redirecting
     // const loginForm = `
     // <!DOCTYPE html>
     // <html>
     // <head>
     //     <title>Admin Service - Login</title>
-    //     <meta charset="utf-8">
-    //     <meta name="viewport" content="width=device-width, initial-scale=1">
     //     <style>
     //         body {
     //             font-family: Arial, sans-serif;
@@ -208,6 +205,7 @@ const authorize = catchAsync(
     //             padding: 30px;
     //             border-radius: 8px;
     //             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    //             position: relative;
     //         }
     //         .form-group {
     //             margin-bottom: 20px;
@@ -233,9 +231,14 @@ const authorize = catchAsync(
     //             border-radius: 4px;
     //             cursor: pointer;
     //             font-size: 16px;
+    //             position: relative;
     //         }
-    //         button:hover {
+    //         button:hover:not(:disabled) {
     //             background-color: #0056b3;
+    //         }
+    //         button:disabled {
+    //             background-color: #6c757d;
+    //             cursor: not-allowed;
     //         }
     //         .error {
     //             color: red;
@@ -250,15 +253,62 @@ const authorize = catchAsync(
     //             margin-bottom: 30px;
     //             color: #333;
     //         }
+
+    //         /* Loader Styles */
+    //         .loader-overlay {
+    //             position: absolute;
+    //             top: 0;
+    //             left: 0;
+    //             right: 0;
+    //             bottom: 0;
+    //             background: rgba(255, 255, 255, 0.9);
+    //             display: none;
+    //             align-items: center;
+    //             justify-content: center;
+    //             border-radius: 8px;
+    //             z-index: 1000;
+    //         }
+    //         .loader-overlay.active {
+    //             display: flex;
+    //         }
+    //         .spinner {
+    //             border: 4px solid #f3f3f3;
+    //             border-top: 4px solid #007bff;
+    //             border-radius: 50%;
+    //             width: 40px;
+    //             height: 40px;
+    //             animation: spin 1s linear infinite;
+    //         }
+    //         @keyframes spin {
+    //             0% { transform: rotate(0deg); }
+    //             100% { transform: rotate(360deg); }
+    //         }
+    //         .loader-text {
+    //             margin-top: 15px;
+    //             color: #333;
+    //             font-weight: 500;
+    //         }
+    //         .loader-content {
+    //             display: flex;
+    //             flex-direction: column;
+    //             align-items: center;
+    //         }
     //     </style>
     // </head>
     // <body>
     //     <div class="login-form">
+    //         <!-- Loader Overlay -->
+    //         <div id="loader-overlay" class="loader-overlay">
+    //             <div class="loader-content">
+    //                 <div class="spinner"></div>
+    //                 <div class="loader-text">Logging in...</div>
+    //             </div>
+    //         </div>
+
     //         <h2>Login to Admin Service</h2>
     //         <div id="error-message" class="error" style="display: none;"></div>
-    //         <form id="loginForm" action="/oauth2/login?${new URLSearchParams(
-    //           req.query as any
-    //         ).toString()}" method="POST">
+
+    //         <form id="loginForm">
     //             <div class="form-group">
     //                 <label for="email">Email:</label>
     //                 <input type="email" id="email" name="email" required>
@@ -267,30 +317,69 @@ const authorize = catchAsync(
     //                 <label for="password">Password:</label>
     //                 <input type="password" id="password" name="password" required>
     //             </div>
-    //             <button type="submit">Login</button>
+    //             <button type="submit" id="btn-submit">Login</button>
     //         </form>
     //     </div>
 
     //     <script>
-    //         document.getElementById('loginForm').addEventListener('submit', function(e) {
+    //         document.getElementById('loginForm').addEventListener('submit', async function(e) {
+    //             e.preventDefault();
+
     //             const email = document.getElementById('email').value;
     //             const password = document.getElementById('password').value;
+    //             const submitBtn = document.getElementById('btn-submit');
+    //             const errorDiv = document.getElementById('error-message');
+    //             const loaderOverlay = document.getElementById('loader-overlay');
+    //             const emailInput = document.getElementById('email');
+    //             const passwordInput = document.getElementById('password');
 
-    //             if (!email || !password) {
-    //                 e.preventDefault();
-    //                 document.getElementById('error-message').textContent = 'Email and password are required';
-    //                 document.getElementById('error-message').style.display = 'block';
+    //             // Reset error and show loader
+    //             errorDiv.style.display = 'none';
+    //             loaderOverlay.classList.add('active');
+    //             submitBtn.disabled = true;
+    //             emailInput.disabled = true;
+    //             passwordInput.disabled = true;
+
+    //             // Get query params from current URL
+    //             const params = new URLSearchParams(window.location.search);
+    //             const queryData = Object.fromEntries(params.entries());
+
+    //             try {
+    //                 const response = await fetch('/oauth2/login', {
+    //                     method: 'POST',
+    //                     headers: {
+    //                         'Content-Type': 'application/json'
+    //                     },
+    //                     body: JSON.stringify({
+    //                         email: email,
+    //                         password: password,
+    //                         ...queryData
+    //                     })
+    //                 });
+
+    //                 const result = await response.json();
+
+    //                 if (response.ok) {
+    //                     // Success - redirect
+    //                     window.location.replace(result.redirectUrl);
+    //                 } else {
+    //                     // Error - hide loader and show error
+    //                     throw new Error(result.message || 'Login failed');
+    //                 }
+    //             } catch (err) {
+    //                 // Hide loader
+    //                 loaderOverlay.classList.remove('active');
+
+    //                 // Show error
+    //                 errorDiv.textContent = err.message;
+    //                 errorDiv.style.display = 'block';
+
+    //                 // Re-enable form
+    //                 submitBtn.disabled = false;
+    //                 emailInput.disabled = false;
+    //                 passwordInput.disabled = false;
     //             }
     //         });
-
-    //         // Show error from URL params if redirected back
-    //         const urlParams = new URLSearchParams(window.location.search);
-    //         const error = urlParams.get('error');
-    //         if (error) {
-    //             const errorDiv = document.getElementById('error-message');
-    //             errorDiv.textContent = error === 'invalid_credentials' ? 'Invalid email or password' : 'Login failed';
-    //             errorDiv.style.display = 'block';
-    //         }
     //     </script>
     // </body>
     // </html>
@@ -298,199 +387,280 @@ const authorize = catchAsync(
 
     const loginForm = `
     <!DOCTYPE html>
-    <html>
-    <head>
+    <html lang="en">
+      <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>Admin Service - Login</title>
+
         <style>
-            body {
-                font-family: Arial, sans-serif;
-                max-width: 400px;
-                margin: 50px auto;
-                padding: 20px;
-                background-color: #f5f5f5;
+          body {
+            margin: 0;
+            padding: 0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(to bottom right, #ecfeff, #eff6ff);
+            font-family: Arial, sans-serif;
+          }
+
+          .container {
+            max-width: 32rem;
+            width: 100%;
+            padding: 1rem;
+          }
+
+          .card {
+            background: white;
+            border-radius: 1rem;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.08);
+            padding: 2rem;
+            position: relative;
+          }
+
+          .icon-wrapper {
+            width: 4rem;
+            height: 4rem;
+            background: #0891b2;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 2rem auto;
+          }
+
+          .icon {
+            width: 2rem;
+            height: 2rem;
+            color: white;
+          }
+
+          h1 {
+            font-size: 1.75rem;
+            font-weight: bold;
+            text-align: center;
+            color: #111827;
+            margin-bottom: 1.5rem;
+            white-space: nowrap;
+            overflow: hidden;
+          }
+
+          .form-group {
+            margin-bottom: 1.25rem;
+          }
+
+          label {
+            display: block;
+            margin-bottom: 0.4rem;
+            font-weight: bold;
+            color: #374151;
+          }
+
+          input[type="email"],
+          input[type="password"] {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid #d1d5db;
+            border-radius: 0.5rem;
+            box-sizing: border-box;
+            font-size: 1rem;
+          }
+
+          button {
+            width: 100%;
+            padding: 0.75rem;
+            background-color: #0891b2;
+            color: white;
+            border: none;
+            border-radius: 0.5rem;
+            font-size: 1rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.2s ease;
+          }
+
+          button:hover:not(:disabled) {
+            background-color: #0e7490;
+          }
+
+          button:disabled {
+            background-color: #6b7280;
+            cursor: not-allowed;
+          }
+
+          .footer-small {
+            text-align: center;
+            font-size: 0.85rem;
+            color: #6b7280;
+            margin-top: 1rem;
+          }
+
+          .error {
+            color: #b91c1c;
+            margin-bottom: 15px;
+            padding: 10px;
+            background-color: #fee2e2;
+            border: 1px solid #fecaca;
+            border-radius: 0.5rem;
+          }
+
+          /* Loader Overlay */
+          .loader-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255, 255, 255, 0.9);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            border-radius: 1rem;
+            z-index: 10;
+          }
+
+          .loader-overlay.active {
+            display: flex;
+          }
+
+          .spinner {
+            height: 2rem;
+            width: 2rem;
+            border: 3px solid transparent;
+            border-bottom-color: #0891b2;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+          }
+
+          @keyframes spin {
+            to {
+              transform: rotate(360deg);
             }
-            .login-form {
-                background: white;
-                padding: 30px;
-                border-radius: 8px;
-                box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-                position: relative;
-            }
-            .form-group {
-                margin-bottom: 20px;
-            }
-            label {
-                display: block;
-                margin-bottom: 5px;
-                font-weight: bold;
-            }
-            input[type="email"], input[type="password"] {
-                width: 100%;
-                padding: 10px;
-                border: 1px solid #ddd;
-                border-radius: 4px;
-                box-sizing: border-box;
-            }
-            button {
-                width: 100%;
-                padding: 12px;
-                background-color: #007bff;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                cursor: pointer;
-                font-size: 16px;
-                position: relative;
-            }
-            button:hover:not(:disabled) {
-                background-color: #0056b3;
-            }
-            button:disabled {
-                background-color: #6c757d;
-                cursor: not-allowed;
-            }
-            .error {
-                color: red;
-                margin-bottom: 15px;
-                padding: 10px;
-                background-color: #f8d7da;
-                border: 1px solid #f5c6cb;
-                border-radius: 4px;
-            }
-            h2 {
-                text-align: center;
-                margin-bottom: 30px;
-                color: #333;
-            }
-            
-            /* Loader Styles */
-            .loader-overlay {
-                position: absolute;
-                top: 0;
-                left: 0;
-                right: 0;
-                bottom: 0;
-                background: rgba(255, 255, 255, 0.9);
-                display: none;
-                align-items: center;
-                justify-content: center;
-                border-radius: 8px;
-                z-index: 1000;
-            }
-            .loader-overlay.active {
-                display: flex;
-            }
-            .spinner {
-                border: 4px solid #f3f3f3;
-                border-top: 4px solid #007bff;
-                border-radius: 50%;
-                width: 40px;
-                height: 40px;
-                animation: spin 1s linear infinite;
-            }
-            @keyframes spin {
-                0% { transform: rotate(0deg); }
-                100% { transform: rotate(360deg); }
-            }
-            .loader-text {
-                margin-top: 15px;
-                color: #333;
-                font-weight: 500;
-            }
-            .loader-content {
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-            }
+          }
+
+          .loader-text {
+            margin-top: 10px;
+            color: #374151;
+            font-weight: 500;
+            text-align: center;
+          }
+
+          .loader-content {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+          }
         </style>
-    </head>
-    <body>
-        <div class="login-form">
-            <!-- Loader Overlay -->
+      </head>
+
+      <body>
+        <div class="container">
+          <div class="card">
             <div id="loader-overlay" class="loader-overlay">
-                <div class="loader-content">
-                    <div class="spinner"></div>
-                    <div class="loader-text">Logging in...</div>
-                </div>
+              <div class="loader-content">
+                <div class="spinner"></div>
+                <div class="loader-text">Logging in...</div>
+              </div>
             </div>
 
-            <h2>Login to Admin Service</h2>
-            <div id="error-message" class="error" style="display: none;"></div>
-            
-            <form id="loginForm"> 
-                <div class="form-group">
-                    <label for="email">Email:</label>
-                    <input type="email" id="email" name="email" required>
-                </div>
-                <div class="form-group">
-                    <label for="password">Password:</label>
-                    <input type="password" id="password" name="password" required>
-                </div>
-                <button type="submit" id="btn-submit">Login</button>
+            <div class="icon-wrapper">
+              <svg
+                class="icon"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="M12 8c-1.178 0-2.143.907-2.143 2.026 0 1.12.965 2.027 2.143 2.027s2.143-.907 2.143-2.027C14.143 8.907 13.178 8 12 8z"
+                />
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="M5.25 8.75c0-3.728 3.004-6.75 6.75-6.75s6.75 3.022 6.75 6.75c0 3.727-3.004 6.75-6.75 6.75S5.25 12.477 5.25 8.75z"
+                />
+              </svg>
+            </div>
+
+            <h1>Elasticsearch Monitoring System</h1>
+
+            <div id="error-message" class="error" style="display: none"></div>
+
+            <form id="loginForm">
+              <div class="form-group">
+                <label for="email">Email</label>
+                <input type="email" id="email" name="email" required />
+              </div>
+
+              <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" required />
+              </div>
+
+              <button type="submit" id="btn-submit">Login</button>
             </form>
+            <p class="footer-small">Authentication is managed by Admin Service</p>
+          </div>
         </div>
 
         <script>
-            document.getElementById('loginForm').addEventListener('submit', async function(e) {
-                e.preventDefault();
-                
-                const email = document.getElementById('email').value;
-                const password = document.getElementById('password').value;
-                const submitBtn = document.getElementById('btn-submit');
-                const errorDiv = document.getElementById('error-message');
-                const loaderOverlay = document.getElementById('loader-overlay');
-                const emailInput = document.getElementById('email');
-                const passwordInput = document.getElementById('password');
-                
-                // Reset error and show loader
-                errorDiv.style.display = 'none';
-                loaderOverlay.classList.add('active');
-                submitBtn.disabled = true;
-                emailInput.disabled = true;
-                passwordInput.disabled = true;
+          document
+            .getElementById("loginForm")
+            .addEventListener("submit", async function (e) {
+              e.preventDefault();
 
-                // Get query params from current URL
-                const params = new URLSearchParams(window.location.search);
-                const queryData = Object.fromEntries(params.entries());
+              const email = document.getElementById("email").value;
+              const password = document.getElementById("password").value;
+              const submitBtn = document.getElementById("btn-submit");
+              const errorDiv = document.getElementById("error-message");
+              const loaderOverlay = document.getElementById("loader-overlay");
+              const emailInput = document.getElementById("email");
+              const passwordInput = document.getElementById("password");
 
-                try {
-                    const response = await fetch('/oauth2/login', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            email: email,
-                            password: password,
-                            ...queryData
-                        })
-                    });
+              errorDiv.style.display = "none";
+              loaderOverlay.classList.add("active");
+              submitBtn.disabled = true;
+              emailInput.disabled = true;
+              passwordInput.disabled = true;
 
-                    const result = await response.json();
+              const params = new URLSearchParams(window.location.search);
+              const queryData = Object.fromEntries(params.entries());
 
-                    if (response.ok) {
-                        // Success - redirect
-                        window.location.replace(result.redirectUrl);
-                    } else {
-                        // Error - hide loader and show error
-                        throw new Error(result.message || 'Login failed');
-                    }
-                } catch (err) {
-                    // Hide loader
-                    loaderOverlay.classList.remove('active');
-                    
-                    // Show error
-                    errorDiv.textContent = err.message;
-                    errorDiv.style.display = 'block';
-                    
-                    // Re-enable form
-                    submitBtn.disabled = false;
-                    emailInput.disabled = false;
-                    passwordInput.disabled = false;
+              try {
+                const response = await fetch("/oauth2/login", {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                  },
+                  body: JSON.stringify({
+                    email: email,
+                    password: password,
+                    ...queryData,
+                  }),
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                  window.location.replace(result.redirectUrl);
+                } else {
+                  throw new Error(result.message || "Login failed");
                 }
+              } catch (err) {
+                loaderOverlay.classList.remove("active");
+                errorDiv.textContent = err.message;
+                errorDiv.style.display = "block";
+                submitBtn.disabled = false;
+                emailInput.disabled = false;
+                passwordInput.disabled = false;
+              }
             });
         </script>
-    </body>
+      </body>
     </html>
     `;
 
@@ -506,6 +676,11 @@ const login = catchAsync(
     const { email, password } = req.body;
     const { response_type, client_id, redirect_uri, scope, state } = req.body;
 
+    if (!response_type || response_type !== "code")
+      return next(new AppError("Response type is not supported", 400));
+
+    if (!scope) return next(new AppError("Scope is required", 400));
+
     if (!email || !password) {
       return next(new AppError("Email and password are required", 400));
     }
@@ -515,12 +690,7 @@ const login = catchAsync(
     if (!existedUser)
       return next(new AppError("Incorrect email or password", 401));
 
-    const verifiedUser = await userService.getUserByEmailAndVerified(
-      email,
-      true
-    );
-
-    if (!verifiedUser)
+    if (!existedUser.is_verified)
       return next(
         new AppError(
           "Account is not verified, please check your email to finish setting up your account",
@@ -532,23 +702,7 @@ const login = catchAsync(
 
     if (!user) {
       console.log("❌ Authentication failed for:", email);
-
-      // When authentication fails, redirect back with error but preserve state
-      if (redirect_uri) {
-        const errorUrl = new URL(redirect_uri as string);
-        errorUrl.searchParams.set("error", "access_denied");
-        errorUrl.searchParams.set("error_description", "Invalid credentials");
-        if (state) {
-          errorUrl.searchParams.set("state", state as string);
-        }
-        console.log(
-          "🔄 Redirecting with error and state:",
-          errorUrl.toString()
-        );
-        return res.redirect(errorUrl.toString());
-      }
-
-      return next(new AppError("Invalid credentials", 401));
+      return next(new AppError("Incorrect email or password", 401));
     }
 
     // Generate authorization code
@@ -577,7 +731,6 @@ const login = catchAsync(
     }
 
     console.log("🔄 Redirecting with auth code to:", url.toString());
-    // res.redirect(url.toString());
     res.status(200).json({
       status: "success",
       redirectUrl: url.toString(),
@@ -817,6 +970,52 @@ const getUserInfo = catchAsync(
   }
 );
 
+const logout = catchAsync(
+  async (req: Request, res: Response, next: NextFunction) => {
+    // 1) Get access token from header or cookie
+    let token;
+    if (
+      req.headers.authorization &&
+      req.headers.authorization.startsWith("Bearer")
+    ) {
+      token = req.headers.authorization.split(" ")[1];
+    } else if (req.cookies.accessToken) {
+      token = req.cookies.accessToken;
+    }
+
+    const oauth2SignOutUrl =
+      process.env.OAUTH2_SIGNOUT_URL ||
+      "https://auth.lvh.me/oauth2/sign_out?rd=https://dashboard.lvh.me/";
+
+    // 2. If token exists, blacklist và revoke token (Best Effort)
+    if (token) {
+      try {
+        const decoded = jwtService.decodeToken(token) as
+          | (JwtPayload & { id: string })
+          | null;
+
+        if (decoded) {
+          const now = Math.floor(Date.now() / 1000);
+          let ttl = decoded.exp ? decoded.exp - now : 900;
+          if (ttl < 0) ttl = 60;
+
+          await tokenService.blacklistToken(token, ttl);
+          console.log("✅ Access token blacklisted");
+
+          if (decoded.id) {
+            await refreshTokenService.revokeRefreshToken(decoded.id);
+            console.log(`✅ Refresh tokens revoked for user ${decoded.id}`);
+          }
+        }
+      } catch (error) {
+        console.error("⚠️ Error during token revocation:", error);
+      }
+    }
+
+    return res.redirect(oauth2SignOutUrl);
+  }
+);
+
 // OAuth2 token revocation endpoint (RFC 7009)
 const revokeToken = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
@@ -933,6 +1132,7 @@ const revokeToken = catchAsync(
 export const oAuth2Controller = {
   authorize,
   login,
+  logout,
   getJWTFromCode,
   refreshToken,
   getUserInfo,

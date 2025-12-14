@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Admin Service - Login</title>
+
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(to bottom right, #ecfeff, #eff6ff);
+        font-family: Arial, sans-serif;
+      }
+
+      .container {
+        max-width: 32rem;
+        width: 100%;
+        padding: 1rem;
+      }
+
+      .card {
+        background: white;
+        border-radius: 1rem;
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.08);
+        padding: 2rem;
+        position: relative;
+      }
+
+      .icon-wrapper {
+        width: 4rem;
+        height: 4rem;
+        background: #0891b2;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: 0 auto 2rem auto;
+      }
+
+      .icon {
+        width: 2rem;
+        height: 2rem;
+        color: white;
+      }
+
+      h1 {
+        font-size: 1.75rem;
+        font-weight: bold;
+        text-align: center;
+        color: #111827;
+        margin-bottom: 1.5rem;
+        white-space: nowrap;
+        overflow: hidden;
+      }
+
+      .form-group {
+        margin-bottom: 1.25rem;
+      }
+
+      label {
+        display: block;
+        margin-bottom: 0.4rem;
+        font-weight: bold;
+        color: #374151;
+      }
+
+      input[type="email"],
+      input[type="password"] {
+        width: 100%;
+        padding: 0.75rem;
+        border: 1px solid #d1d5db;
+        border-radius: 0.5rem;
+        box-sizing: border-box;
+        font-size: 1rem;
+      }
+
+      button {
+        width: 100%;
+        padding: 0.75rem;
+        background-color: #0891b2;
+        color: white;
+        border: none;
+        border-radius: 0.5rem;
+        font-size: 1rem;
+        font-weight: bold;
+        cursor: pointer;
+        transition: background 0.2s ease;
+      }
+
+      button:hover:not(:disabled) {
+        background-color: #0e7490;
+      }
+
+      button:disabled {
+        background-color: #6b7280;
+        cursor: not-allowed;
+      }
+
+      .footer-small {
+        text-align: center;
+        font-size: 0.85rem;
+        color: #6b7280;
+        margin-top: 1rem;
+      }
+
+      .error {
+        color: #b91c1c;
+        margin-bottom: 15px;
+        padding: 10px;
+        background-color: #fee2e2;
+        border: 1px solid #fecaca;
+        border-radius: 0.5rem;
+      }
+
+      /* Loader Overlay */
+      .loader-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(255, 255, 255, 0.9);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        border-radius: 1rem;
+        z-index: 10;
+      }
+
+      .loader-overlay.active {
+        display: flex;
+      }
+
+      .spinner {
+        height: 2rem;
+        width: 2rem;
+        border: 3px solid transparent;
+        border-bottom-color: #0891b2;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin: 0 auto;
+      }
+
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      .loader-text {
+        margin-top: 10px;
+        color: #374151;
+        font-weight: 500;
+        text-align: center;
+      }
+
+      .loader-content {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="container">
+      <div class="card">
+        <div id="loader-overlay" class="loader-overlay">
+          <div class="loader-content">
+            <div class="spinner"></div>
+            <div class="loader-text">Logging in...</div>
+          </div>
+        </div>
+
+        <div class="icon-wrapper">
+          <svg
+            class="icon"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            viewBox="0 0 24 24"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M12 8c-1.178 0-2.143.907-2.143 2.026 0 1.12.965 2.027 2.143 2.027s2.143-.907 2.143-2.027C14.143 8.907 13.178 8 12 8z"
+            />
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M5.25 8.75c0-3.728 3.004-6.75 6.75-6.75s6.75 3.022 6.75 6.75c0 3.727-3.004 6.75-6.75 6.75S5.25 12.477 5.25 8.75z"
+            />
+          </svg>
+        </div>
+
+        <h1>Elasticsearch Monitoring System</h1>
+
+        <div id="error-message" class="error" style="display: none"></div>
+
+        <form id="loginForm">
+          <div class="form-group">
+            <label for="email">Email</label>
+            <input type="email" id="email" name="email" required />
+          </div>
+
+          <div class="form-group">
+            <label for="password">Password</label>
+            <input type="password" id="password" name="password" required />
+          </div>
+
+          <button type="submit" id="btn-submit">Login</button>
+        </form>
+        <p class="footer-small">Authentication is managed by Admin Service</p>
+      </div>
+    </div>
+
+    <script>
+      document
+        .getElementById("loginForm")
+        .addEventListener("submit", async function (e) {
+          e.preventDefault();
+
+          const email = document.getElementById("email").value;
+          const password = document.getElementById("password").value;
+          const submitBtn = document.getElementById("btn-submit");
+          const errorDiv = document.getElementById("error-message");
+          const loaderOverlay = document.getElementById("loader-overlay");
+          const emailInput = document.getElementById("email");
+          const passwordInput = document.getElementById("password");
+
+          errorDiv.style.display = "none";
+          loaderOverlay.classList.add("active");
+          submitBtn.disabled = true;
+          emailInput.disabled = true;
+          passwordInput.disabled = true;
+
+          const params = new URLSearchParams(window.location.search);
+          const queryData = Object.fromEntries(params.entries());
+
+          try {
+            const response = await fetch("/oauth2/login", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                email: email,
+                password: password,
+                ...queryData,
+              }),
+            });
+
+            const result = await response.json();
+
+            if (response.ok) {
+              window.location.replace(result.redirectUrl);
+            } else {
+              throw new Error(result.message || "Login failed");
+            }
+          } catch (err) {
+            loaderOverlay.classList.remove("active");
+            errorDiv.textContent = err.message;
+            errorDiv.style.display = "block";
+            submitBtn.disabled = false;
+            emailInput.disabled = false;
+            passwordInput.disabled = false;
+          }
+        });
+    </script>
+  </body>
+</html>

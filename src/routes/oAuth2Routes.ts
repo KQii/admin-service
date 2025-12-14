@@ -28,6 +28,8 @@ router.post("/token", (req, res, next) => {
 
 router.get("/userinfo", oAuth2Controller.getUserInfo);
 
+router.get("/logout", oAuth2Controller.logout);
+
 // Token revocation endpoint (RFC 7009)
 router.post("/revoke", oAuth2Controller.revokeToken);
 

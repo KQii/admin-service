@@ -17,6 +17,7 @@ export const refreshTokenService = {
 
   validateRefreshToken: async (refreshToken: string) => {
     const user = await userModel.findByRefreshToken(refreshToken);
+    console.log("User from findByRefreshToken", user);
 
     if (
       !user ||
